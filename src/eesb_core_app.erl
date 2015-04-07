@@ -57,7 +57,7 @@ stop(_State) ->
 %%
 %%  Checks if application environment is valid.
 %%
-validate_env(Env) ->
+validate_env(_Env) ->
     ok.
 
 
