@@ -19,6 +19,10 @@
 %%%
 %%% Mainly acts as a facade to other modules.
 %%%
+%%% TODO: Add riak support.
+%%% TODO: Add singleton functionality.
+%%% TODO: Add adapter management functionality.
+%%%
 -module(eesb).
 -export([register_node/2, unregister_node/1, register_flow/3, unregister_flow/2]).
 

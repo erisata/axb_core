@@ -17,16 +17,22 @@
 %%%
 %%% This is a generic behaviour for processing a message in the ESB.
 %%%
+%%% TODO: Stats (exometer).
+%%% TODO: Should the flow should be temporary in the supervisor?
+%%%
 -module(eesb_flow).
 -behaviour(gen_fsm).
--export([describe/3, default/4, start_sup/4, start_link/4]).
--export([flow_id/0, route_id/0, related_id/2]).
+-export([describe/3, default/4, start_sup/4, start_link/4, respond/1, respond/2, wait_response/2]).
+-export([flow_id/0, route_id/0, client_ref/0, related_id/2]).
 -export([init/1, handle_event/3, handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
 -export([active/2, active/3]).
 
 -define(REF(FlowId), {via, gproc, {n, l, {?MODULE, FlowId}}}).
--define(FLOW_ID,  'eesb_flow$flow_id').
--define(ROUTE_ID, 'eesb_flow$route_id').
+-define(FLOW_ID,     'eesb_flow$flow_id').
+-define(ROUTE_ID,    'eesb_flow$route_id').
+-define(CLIENT_REF,  'eesb_flow$client_ref').
+-define(ADD_RELATED, 'eesb_flow$add_related').
+-define(RESPONSE,    'eesb_flow$response').
 
 
 %% =============================================================================
@@ -43,7 +49,93 @@
 -callback init(
         Args :: term()
     ) ->
-        {ok, State :: term()}.
+        {ok, StateName :: atom(), StateData :: term()} |
+        {ok, StateName :: atom(), StateData :: term(), Timeout :: integer()} |
+        {ok, StateName :: atom(), StateData :: term(), hibernate} |
+        {stop, Reason :: term()} |
+        ignore.
+
+%%
+%%
+%%
+-callback handle_event(
+        Event       :: term(),
+        StateName   :: atom(),
+        StateData   :: term()
+    ) ->
+        {next_state, NextStateName, NewStateData} |
+        {next_state, NextStateName, NewStateData, Timeout} |
+        {next_state, NextStateName, NewStateData, hibernate} |
+        {stop, Reason, NewStateData}
+    when
+        NextStateName :: atom(),
+        NewStateData :: term(),
+        Timeout :: integer(),
+        Reason :: term().
+
+%%
+%%
+%%
+-callback handle_sync_event(
+        Event       :: term(),
+        From        :: term(),
+        StateName   :: atom(),
+        StateData   :: term()
+    ) ->
+        {reply, Reply, NextStateName, NewStateData} |
+        {reply, Reply, NextStateName, NewStateData, Timeout} |
+        {reply, Reply, NextStateName, NewStateData, hibernate} |
+        {next_state, NextStateName, NewStateData} |
+        {next_state, NextStateName, NewStateData, Timeout} |
+        {next_state, NextStateName, NewStateData, hibernate} |
+        {stop, Reason, Reply, NewStateData} |
+        {stop, Reason, NewStateData}
+    when
+        Reply :: term(),
+        NextStateName :: atom(),
+        NewStateData :: term(),
+        Timeout :: integer(),
+        Reason :: term().
+
+%%
+%%
+%%
+-callback handle_info(
+        Info        :: term(),
+        StateName   :: atom(),
+        StateData   :: term()
+    ) ->
+        {next_state, NextStateName, NewStateData} |
+        {next_state, NextStateName, NewStateData, Timeout} |
+        {next_state, NextStateName, NewStateData, hibernate} |
+        {stop, Reason, NewStateData}
+    when
+        NextStateName :: atom(),
+        NewStateData :: term(),
+        Timeout :: integer(),
+        Reason :: term().
+
+
+%%
+%%
+%%
+-callback terminate(
+        Reason      :: term(),
+        StateName   :: atom(),
+        StateData   :: term()
+    ) -> any().
+
+
+%%
+%%
+%%
+-callback code_change(
+        OldVsn      :: term(),
+        StateName   :: atom(),
+        StateData   :: term(),
+        Extra       :: term()
+    ) ->
+        {ok, StateName :: atom(), StateData :: term()}.
 
 
 
@@ -91,7 +183,8 @@ default(NodeName, FlowModule, meta, _Opts) ->
 %%
 start_sup(NodeName, FlowModule, Args, Opts) ->
     {ok, FlowId, RouteId} = resolve_ids(Opts),
-    NewOpts = [{flow_id, FlowId}, {route_id, RouteId} | Opts],
+    {ok, ClientRef} = resolve_client_ref(Opts),
+    NewOpts = [{flow_id, FlowId}, {route_id, RouteId}, {client, ClientRef} | Opts],
     {ok, _} = eesb_flow_sup:start_flow(NodeName, FlowModule, Args, NewOpts),
     {ok, FlowId}.
 
@@ -101,8 +194,44 @@ start_sup(NodeName, FlowModule, Args, Opts) ->
 %%
 start_link(NodeName, FlowModule, Args, Opts) ->
     {ok, FlowId, RouteId} = resolve_ids(Opts),
-    gen_fsm:start_link(?REF(FlowId), ?MODULE, {NodeName, FlowModule, Args, FlowId, RouteId}, Opts).
+    {ok, ClientRef} = resolve_client_ref(Opts),
+    gen_fsm:start_link(?REF(FlowId), ?MODULE, {NodeName, FlowModule, Args, FlowId, RouteId, ClientRef}, Opts).
 
+
+%% TODO: Delegates for all FSM functions.
+
+
+%%
+%%
+%%
+respond(Response) ->
+    Client = erlang:get(?CLIENT_REF),
+    Client ! {?RESPONSE, flow_id(), Response}.
+
+
+%%
+%%
+%%
+respond(Client, Response) ->
+    Client ! {?RESPONSE, flow_id(), Response}.
+
+
+%%
+%%
+%%
+wait_response(FlowId, Timeout) ->
+    receive
+        {?RESPONSE, FlowId, Response} ->
+            Response
+    after Timeout ->
+        {error, timeout}
+    end.
+
+
+
+%% =============================================================================
+%%  API functions for FSM process only.
+%% =============================================================================
 
 %%
 %%
@@ -121,8 +250,19 @@ route_id() ->
 %%
 %%
 %%
+client_ref() ->
+    erlang:get(?CLIENT_REF).
+
+
+%%
+%%
+%%
 related_id(Name, Value) ->
-    % TODO.
+    AddRelated = case erlang:get() of
+        undefined -> [{Name, Value}];
+        Other     -> [{Name, Value} | Other]
+    end,
+    erlang:put(?ADD_RELATED, AddRelated),
     ok.
 
 
@@ -132,13 +272,14 @@ related_id(Name, Value) ->
 %% =============================================================================
 
 -record(state, {
-    node     :: term(),
-    mod      :: module(),
-    sub_name :: atom(),
-    sub_data :: term(),
-    flow_id  :: term(),
-    route_id :: term(),
-    related  :: [{Name :: term(), RelatedId :: term()}]
+    node        :: term(),
+    mod         :: module(),
+    sub_name    :: atom(),
+    sub_data    :: term(),
+    flow_id     :: term(),
+    route_id    :: term(),
+    client_ref  :: term(),
+    related     :: [{Name :: term(), RelatedId :: term()}]
 }).
 
 
@@ -150,25 +291,25 @@ related_id(Name, Value) ->
 %%
 %%
 %%
-init({NodeName, FlowModule, Args, FlowId, RouteId}) ->
+init({NodeName, FlowModule, Args, FlowId, RouteId, ClientRef}) ->
     erlang:put(?FLOW_ID, FlowId),
     erlang:put(?ROUTE_ID, RouteId),
+    erlang:put(?CLIENT_REF, ClientRef),
     lager:md([
         {flow,  FlowId},
         {route, RouteId}
     ]),
-    {ok, SubName, SubData} = FlowModule:init(Args),
-    StateName = active,
     StateData = #state{
         node = NodeName,
         mod = FlowModule,
-        sub_name = SubName,
-        sub_data = SubData,
+        sub_name = undefined,
+        sub_data = undefined,
         flow_id = FlowId,
         route_id = RouteId,
+        client_ref = ClientRef,
         related = []
     },
-    {ok, StateName, StateData}.
+    delegate(active, StateData, {FlowModule, init, [Args]}).
 
 
 %%
@@ -176,7 +317,7 @@ init({NodeName, FlowModule, Args, FlowId, RouteId}) ->
 %%
 active(Event, StateData) ->
     #state{mod = FlowModule, sub_name = SubName, sub_data = SubData} = StateData,
-    update_sub_result(active, StateData, FlowModule:SubName(Event, SubData)).
+    delegate(active, StateData, {FlowModule, SubName, [Event, SubData]}).
 
 
 %%
@@ -184,7 +325,7 @@ active(Event, StateData) ->
 %%
 handle_event(Event, StateName, StateData) ->
     #state{mod = FlowModule, sub_name = SubName, sub_data = SubData} = StateData,
-    update_sub_result(StateName, StateData, FlowModule:handle_event(Event, SubName, SubData)).
+    delegate(StateName, StateData, {FlowModule, handle_event, [Event, SubName, SubData]}).
 
 
 %%
@@ -192,7 +333,7 @@ handle_event(Event, StateName, StateData) ->
 %%
 active(Event, From, StateData) ->
     #state{mod = FlowModule, sub_name = SubName, sub_data = SubData} = StateData,
-    update_sub_result(active, StateData, FlowModule:SubName(Event, From, SubData)).
+    delegate(active, StateData, {FlowModule, SubName, [Event, From, SubData]}).
 
 
 %%
@@ -200,7 +341,7 @@ active(Event, From, StateData) ->
 %%
 handle_sync_event(Event, From, StateName, StateData) ->
     #state{mod = FlowModule, sub_name = SubName, sub_data = SubData} = StateData,
-    update_sub_result(StateName, StateData, FlowModule:handle_event(Event, From, SubName, SubData)).
+    delegate(StateName, StateData, {FlowModule, handle_sync_event, [Event, From, SubName, SubData]}).
 
 
 %%
@@ -208,15 +349,15 @@ handle_sync_event(Event, From, StateName, StateData) ->
 %%
 handle_info(Info, StateName, StateData) ->
     #state{mod = FlowModule, sub_name = SubName, sub_data = SubData} = StateData,
-    update_sub_result(StateName, StateData, FlowModule:handle_info(Info, SubName, SubData)).
+    delegate(StateName, StateData, {FlowModule, handle_info, [Info, SubName, SubData]}).
 
 
 %%
 %%
 %%
-terminate(Reason, _StateName, StateData) ->
+terminate(Reason, StateName, StateData) ->
     #state{mod = FlowModule, sub_name = SubName, sub_data = SubData} = StateData,
-    FlowModule:terminate(Reason, SubName, SubData).
+    delegate(StateName, StateData, {FlowModule, terminate, [Reason, SubName, SubData]}).
 
 
 %%
@@ -224,8 +365,7 @@ terminate(Reason, _StateName, StateData) ->
 %%
 code_change(OldVsn, StateName, StateData, Extra) ->
     #state{mod = FlowModule, sub_name = SubName, sub_data = SubData} = StateData,
-    {ok, NextSubName, NewSubData} = FlowModule:code_change(OldVsn, SubName, SubData, Extra),
-    {ok, StateName, update_sub(StateData, NextSubName, NewSubData)}.
+    delegate(StateName, StateData, {FlowModule, code_change, [OldVsn, SubName, SubData, Extra]}).
 
 
 
@@ -236,46 +376,51 @@ code_change(OldVsn, StateName, StateData, Extra) ->
 %%
 %%
 %%
-update_sub(StateData, NextSubName, NewSubData) ->
+delegate(StateName, StateData = #state{related = Related}, {Module, Function, Args}) ->
+    ok = related_ids_setup(),
+    Result = erlang:apply(Module, Function, Args),
+    NewRelated = related_ids_collect(Related),
+    case {Function, Result} of
+        {_, {ok, NextSubName, NewSubData}} ->
+            {ok, StateName, update_sub(StateData, NextSubName, NewSubData, NewRelated)};
+        {_, {ok, NextSubName, NewSubData, TimeoutOrHibernate}} ->
+            {ok, StateName, update_sub(StateData, NextSubName, NewSubData, NewRelated), TimeoutOrHibernate};
+        {_, {reply, Reply, NextSubName, NewSubData}} ->
+            {reply, Reply, StateName, update_sub(StateData, NextSubName, NewSubData, NewRelated)};
+        {_, {reply, Reply, NextSubName, NewSubData, TimeoutOrHibernate}} ->
+            {reply, Reply, StateName, update_sub(StateData, NextSubName, NewSubData, NewRelated), TimeoutOrHibernate};
+        {_, {next_state, NextSubName, NewSubData}} ->
+            {next_state, StateName, update_sub(StateData, NextSubName, NewSubData, NewRelated)};
+        {_, {next_state, NextSubName, NewSubData, TimeoutOrHibernate}} ->
+            {next_state, StateName, update_sub(StateData, NextSubName, NewSubData, NewRelated), TimeoutOrHibernate};
+        {_, {stop, Reason, Reply, NewSubData}} ->
+            {stop, Reason, Reply, update_sub(StateData, NewSubData, NewRelated)};
+        {_, {stop, Reason, NewSubData}} ->
+            {stop, Reason, update_sub(StateData, NewSubData, NewRelated)};
+        {terminate, Any} ->
+            Any
+    end.
+
+
+%%
+%%
+%%
+update_sub(StateData, NextSubName, NewSubData, NewRelated) ->
     StateData#state{
         sub_name = NextSubName,
-        sub_data = NewSubData
+        sub_data = NewSubData,
+        related = NewRelated
     }.
 
 
 %%
 %%
 %%
-update_sub(StateData, NewSubData) ->
+update_sub(StateData, NewSubData, NewRelated) ->
     StateData#state{
-        sub_data = NewSubData
+        sub_data = NewSubData,
+        related = NewRelated
     }.
-
-
-%%
-%%
-%%
-update_sub_result(StateName, StateData, Result) ->
-    case Result of
-        {reply, Reply, NextSubName, NewSubData} ->
-            NewStateData = update_sub(StateData, NextSubName, NewSubData),
-            {reply, Reply, StateName, NewStateData};
-        {reply, Reply, NextSubName, NewSubData, TimeoutOrHibernate} ->
-            NewStateData = update_sub(StateData, NextSubName, NewSubData),
-            {reply, Reply, StateName, NewStateData, TimeoutOrHibernate};
-        {next_state, NextSubName, NewSubData} ->
-            NewStateData = update_sub(StateData, NextSubName, NewSubData),
-            {next_state, StateName, NewStateData};
-        {next_state, NextSubName, NewSubData, TimeoutOrHibernate} ->
-            NewStateData = update_sub(StateData, NextSubName, NewSubData),
-            {next_state, StateName, NewStateData, TimeoutOrHibernate};
-        {stop, Reason, Reply, NewSubData} ->
-            NewStateData = update_sub(StateData, NewSubData),
-            {stop, Reason, Reply, NewStateData};
-        {stop, Reason, NewSubData} ->
-            NewStateData = update_sub(StateData, NewSubData),
-            {stop, Reason, NewStateData}
-    end.
 
 
 %%
@@ -305,7 +450,38 @@ resolve_ids(Opts) ->
 %%
 %%
 %%
+resolve_client_ref(Opts) ->
+    ClientRef = case proplists:get_value(client, Opts) of
+        undefined ->
+            self();
+        SuppliedClientRef ->
+            SuppliedClientRef
+    end,
+    {ok, ClientRef}.
+
+
+%%
+%%
+%%
 make_id() ->
-    {node(), erlang:now()}.
+    IdTerm = {node(), erlang:now()},
+    SHA = crypto:hash(sha, erlang:term_to_binary(IdTerm)),
+    lists:flatten([io_lib:format("~2.16.0B", [X]) || X <- binary_to_list(SHA)]).
+
+
+%%
+%%
+%%
+related_ids_setup() ->
+    erlang:put(?ADD_RELATED, []),
+    ok.
+
+
+%%
+%%
+%%
+related_ids_collect(Related) ->
+    AddRelated = erlang:erase(?ADD_RELATED),
+    AddRelated ++ Related.
 
 
