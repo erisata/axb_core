@@ -20,15 +20,15 @@
 %%% Mainly acts as a facade to other modules.
 %%%
 -module(eesb).
--export([register_node/3, unregister_node/1, register_flow/3, unregister_flow/2]).
+-export([register_node/2, unregister_node/1, register_flow/3, unregister_flow/2]).
 
 
 %%
 %%  Register and links the node.
 %%  Should be called from the node process.
 %%
-register_node(NodeName, FlowSupModule, Opts) ->
-    eesb_node_mgr:register_node(NodeName, FlowSupModule, Opts).
+register_node(NodeName, Opts) ->
+    eesb_node_mgr:register_node(NodeName, Opts).
 
 
 %%

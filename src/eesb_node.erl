@@ -19,8 +19,11 @@
 %%%
 -module(eesb_node).
 -behaviour(gen_server).
--export([start_spec/2, start_link/4]).
+-export([start_spec/2, start_link/5, flow_sup/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+
+-define(REF(NodeName), {via, gproc, {n, l, {?MODULE, NodeName}}}).
+-define(NODE_FLOW_SUP(NodeName), {n, l, {?MODULE, NodeName, flow_sup}}).
 
 
 %% =============================================================================
@@ -60,8 +63,16 @@ start_spec(SpecId, {Module, Function, Args}) when is_atom(Module), is_atom(Funct
 %%
 %%
 %%
-start_link(Name, Module, Args, Opts) ->
-    gen_server:start_link(Name, ?MODULE, {Module, Args}, Opts).
+start_link(NodeName, NodeFlowSup, Module, Args, Opts) ->
+    gen_server:start_link(?REF(NodeName), ?MODULE, {NodeName, NodeFlowSup, Module, Args}, Opts).
+
+
+%%
+%%  Get flow supervisor module for the specified node.
+%%
+flow_sup(NodeName) ->
+    {ok, gproc:lookup_value(?NODE_FLOW_SUP(NodeName))}.
+
 
 
 %% =============================================================================
@@ -74,13 +85,14 @@ start_link(Name, Module, Args, Opts) ->
 
 
 %% =============================================================================
-%%  Callbacks for gen_server.
+%%  Callbacks for `gen_server`.
 %% =============================================================================
 
 %%
 %%
 %%
-init({Module, Args}) ->
+init({NodeName, NodeFlowSup, Module, Args}) ->
+    true = gproc:reg(?NODE_FLOW_SUP(NodeName), NodeFlowSup),
     ok = Module:init(Args),
     State = #state{mod = Module},
     {ok, State}.
@@ -118,7 +130,7 @@ terminate(_Reason, _State) ->
 %%
 %%
 code_change(OldVsn, State = #state{mod = Module}, Extra) ->
-    ok = Module:code_change(OldVsn, Extra), %% TODO: Is this correct?
+    ok = Module:code_change(OldVsn, Extra),
     {ok, State}.
 
 

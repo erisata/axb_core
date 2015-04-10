@@ -21,7 +21,7 @@
 -behaviour(eesb_flow_sup).
 -behaviour(supervisor).
 -export([start_spec/2, start_link/2]).
--export([start_flow/3, register_flow/2, unregister_flow/2]).
+-export([start_flow/4, register_flow/2, unregister_flow/2]).
 -export([init/1]).
 
 -define(REF(NodeName, FlowModule), {via, gproc, {n, l, {?MODULE, NodeName, FlowModule}}}).
@@ -52,8 +52,8 @@ start_link(NodeName, FlowModule) ->
 %%
 %%  Start new flow under this supervisor.
 %%
-start_flow(NodeName, FlowModule, Args) ->
-    supervisor:start_child(?REF(NodeName, FlowModule), Args).
+start_flow(NodeName, FlowModule, Args, Opts) ->
+    supervisor:start_child(?REF(NodeName, FlowModule), [Args, Opts]).
 
 
 %%

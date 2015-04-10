@@ -18,7 +18,7 @@
 %%% Behaviour for flow sup.
 %%%
 -module(eesb_flow_sup).
--export([start_flow/4, register_flow/3, unregister_flow/3]).
+-export([start_flow/4, register_flow/2, unregister_flow/2]).
 
 
 %% =============================================================================
@@ -28,7 +28,7 @@
 %%
 %%
 %%
--callback start_flow(NodeName :: term(), FlowModule :: module(), Args :: term()) -> {ok, term()}.
+-callback start_flow(NodeName :: term(), FlowModule :: module(), Args :: term(), Opts :: list()) -> {ok, term()}.
 
 %%
 %%
@@ -43,27 +43,30 @@
 
 
 %% =============================================================================
-%% API functions.
+%%  API functions.
 %% =============================================================================
 
 %%
 %%
 %%
-start_flow(SupModule, NodeName, FlowModule, Args) ->
-    SupModule:start_flow(NodeName, FlowModule, Args).
+start_flow(NodeName, FlowModule, Args, Opts) ->
+    {ok, SupModule} = eesb_node:flow_sup(NodeName),
+    SupModule:start_flow(NodeName, FlowModule, Args, Opts).
 
 
 %%
 %%
 %%
-register_flow(SupModule, NodeName, FlowModule) ->
+register_flow(NodeName, FlowModule) ->
+    {ok, SupModule} = eesb_node:flow_sup(NodeName),
     SupModule:register_flow(NodeName, FlowModule).
 
 
 %%
 %%
 %%
-unregister_flow(SupModule, NodeName, FlowModule) ->
+unregister_flow(NodeName, FlowModule) ->
+    {ok, SupModule} = eesb_node:flow_sup(NodeName),
     SupModule:unregister_flow(NodeName, FlowModule).
 
 

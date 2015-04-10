@@ -21,7 +21,7 @@
 -behaviour(eesb_flow_sup).
 -behaviour(supervisor).
 -export([start_spec/2, start_link/1]).
--export([start_flow/3, register_flow/2, unregister_flow/2]).
+-export([start_flow/4, register_flow/2, unregister_flow/2]).
 -export([init/1]).
 
 -define(REF(NodeName), {via, gproc, {n, l, {?MODULE, NodeName}}}).
@@ -39,6 +39,13 @@ start_spec(SpecId, {Module, Function, Args}) ->
         {Module, Function, Args},
         permanent, brutal_kill, supervisor,
         [Module, ?MODULE]
+    };
+
+start_spec(SpecId, NodeName) ->
+    {SpecId,
+        {?MODULE, start_link, [NodeName]},
+        permanent, brutal_kill, supervisor,
+        [?MODULE]
     }.
 
 
@@ -52,8 +59,8 @@ start_link(NodeName) ->
 %%
 %%  Implements `eesb_flow_sup` behaviour.
 %%
-start_flow(NodeName, FlowModule, Args) ->
-    eesb_flow_sup_sofo:start_flow(NodeName, FlowModule, Args).
+start_flow(NodeName, FlowModule, Args, Opts) ->
+    eesb_flow_sup_sofo:start_flow(NodeName, FlowModule, Args, Opts).
 
 
 %%

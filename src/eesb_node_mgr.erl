@@ -20,7 +20,7 @@
 -module(eesb_node_mgr).
 -behaviour(gen_server).
 -export([start_spec/0, start_link/0]).
--export([register_node/3, unregister_node/1, register_flow/3, unregister_flow/2]).
+-export([register_node/2, unregister_node/1, register_flow/3, unregister_flow/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 
@@ -47,9 +47,9 @@ start_link() ->
 %%
 %%  Registers and links with the node.
 %%
-register_node(NodeName, FlowSupModule, Opts) ->
+register_node(NodeName, Opts) ->
     NodePid = self(),
-    gen_server:call(?MODULE, {register_node, NodeName, NodePid, FlowSupModule, Opts}).
+    gen_server:call(?MODULE, {register_node, NodeName, NodePid, Opts}).
 
 
 %%
@@ -103,6 +103,7 @@ unregister_flow(NodeName, FlowModule) ->
 %     ok.
 
 
+
 %% =============================================================================
 %%  Internal state.
 %% =============================================================================
@@ -110,7 +111,6 @@ unregister_flow(NodeName, FlowModule) ->
 -record(node, {
     name        :: term(),      %%  Node name.
     pid         :: pid(),       %%  Node process PID.
-    flow_sup    :: module(),    %%  Node Flow supervisor.
     flows       :: [module()]   %%  Registered flow modules.
 }).
 
@@ -138,14 +138,13 @@ init({}) ->
 %%
 %%
 %%
-handle_call({register_node, NodeName, NodePid, FlowSupModule, _Opts}, _From, State = #state{nodes = Nodes}) ->
+handle_call({register_node, NodeName, NodePid, _Opts}, _From, State = #state{nodes = Nodes}) ->
     case lists:keyfind(NodeName, #node.name, Nodes) of
         false ->
             true = erlang:link(NodePid),
             Node = #node{
                 name     = NodeName,
                 pid      = NodePid,
-                flow_sup = FlowSupModule,
                 flows    = []
             },
             {reply, ok, State#state{nodes = [Node | Nodes]}};
@@ -158,9 +157,9 @@ handle_call({unregister_node, NodeName}, _From, State = #state{nodes = Nodes}) -
     NewNodes = case lists:keytake(NodeName, #node.name, Nodes) of
         false ->
             Nodes;
-        {value, #node{pid = NodePid, flow_sup = FlowSupModule, flows = Flows}, OtherNodes} ->
+        {value, #node{pid = NodePid, flows = Flows}, OtherNodes} ->
             UnregisterFlowFun = fun (FlowModule) ->
-                case eesb_flow_sup:unregister_flow(FlowSupModule, NodeName, FlowModule) of
+                case eesb_flow_sup:unregister_flow(NodeName, FlowModule) of
                     ok -> ok;
                     {error, _Reason} -> ok
                 end
@@ -176,12 +175,12 @@ handle_call({register_flow, NodeName, FlowModule, _Opts}, _From, State = #state{
         false ->
             Reason = {node_not_registered, NodeName},
             {reply, {error, Reason}, State};
-        Node = #node{flow_sup = FlowSupModule, flows = Flows} ->
+        Node = #node{flows = Flows} ->
             case lists:member(FlowModule, Flows) of
                 true ->
                     {reply, ok, State};
                 false ->
-                    case eesb_flow_sup:register_flow(FlowSupModule, NodeName, FlowModule) of
+                    case eesb_flow_sup:register_flow(NodeName, FlowModule) of
                         ok ->
                             NewNode = Node#node{flows = [FlowModule | Flows]},
                             NewNodes = lists:keyreplace(NodeName, #node.name, Nodes, NewNode),
@@ -197,10 +196,10 @@ handle_call({unregister_flow, NodeName, FlowModule}, _From, State = #state{nodes
         false ->
             Reason = {node_not_registered, NodeName},
             {reply, {error, Reason}, State};
-        Node = #node{flow_sup = FlowSupModule, flows = Flows} ->
+        Node = #node{flows = Flows} ->
             case lists:member(FlowModule, Flows) of
                 true ->
-                    UnregResult = case eesb_flow_sup:unregister_flow(FlowSupModule, NodeName, FlowModule) of
+                    UnregResult = case eesb_flow_sup:unregister_flow(NodeName, FlowModule) of
                         ok                   -> ok;
                         {error, not_found}   -> ok;
                         {error, UnregReason} -> {error, UnregReason}
