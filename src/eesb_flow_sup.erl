@@ -14,39 +14,56 @@
 %| limitations under the License.
 %\--------------------------------------------------------------------
 
+%%%
+%%% Behaviour for flow sup.
+%%%
+-module(eesb_flow_sup).
+-export([start_flow/4, register_flow/3, unregister_flow/3]).
+
+
+%% =============================================================================
+%%  Callback definitions.
+%% =============================================================================
+
 %%
-%%  Main supervisor.
 %%
--module(eesb_core_sup).
--behaviour(supervisor).
--export([start_link/0]).
--export([init/1]).
+%%
+-callback start_flow(NodeName :: term(), FlowModule :: module(), Args :: term()) -> {ok, term()}.
+
+%%
+%%
+%%
+-callback register_flow(NodeName :: term(), FlowModule :: module()) -> ok.
+
+%%
+%%
+%%
+-callback unregister_flow(NodeName :: term(), FlowModule :: module()) -> ok.
+
 
 
 %% =============================================================================
 %% API functions.
 %% =============================================================================
 
-
 %%
-%%  Create this supervisor.
 %%
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, {}).
-
-
-
-%% =============================================================================
-%% Callbacks for supervisor.
-%% =============================================================================
+%%
+start_flow(SupModule, NodeName, FlowModule, Args) ->
+    SupModule:start_flow(NodeName, FlowModule, Args).
 
 
 %%
-%%  Supervisor initialization.
 %%
-init({}) ->
-    {ok, {{one_for_all, 100, 10}, [
-        eesb_node_mgr:start_spec()
-    ]}}.
+%%
+register_flow(SupModule, NodeName, FlowModule) ->
+    SupModule:register_flow(NodeName, FlowModule).
+
+
+%%
+%%
+%%
+unregister_flow(SupModule, NodeName, FlowModule) ->
+    SupModule:unregister_flow(NodeName, FlowModule).
 
 

@@ -14,39 +14,41 @@
 %| limitations under the License.
 %\--------------------------------------------------------------------
 
-%%
-%%  Main supervisor.
-%%
--module(eesb_core_sup).
--behaviour(supervisor).
--export([start_link/0]).
--export([init/1]).
-
-
-%% =============================================================================
-%% API functions.
-%% =============================================================================
+%%%
+%%% EESB API.
+%%%
+%%% Mainly acts as a facade to other modules.
+%%%
+-module(eesb).
+-export([register_node/3, unregister_node/1, register_flow/3, unregister_flow/2]).
 
 
 %%
-%%  Create this supervisor.
+%%  Register and links the node.
+%%  Should be called from the node process.
 %%
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, {}).
-
-
-
-%% =============================================================================
-%% Callbacks for supervisor.
-%% =============================================================================
+register_node(NodeName, FlowSupModule, Opts) ->
+    eesb_node_mgr:register_node(NodeName, FlowSupModule, Opts).
 
 
 %%
-%%  Supervisor initialization.
+%%  Unlinks and unregisters the node.
 %%
-init({}) ->
-    {ok, {{one_for_all, 100, 10}, [
-        eesb_node_mgr:start_spec()
-    ]}}.
+unregister_node(NodeName) ->
+    eesb_node_mgr:unregister_node(NodeName).
+
+
+%%
+%%  Register a flow for the node.
+%%
+register_flow(NodeName, FlowModule, Opts) ->
+    eesb_node_mgr:register_flow(NodeName, FlowModule, Opts).
+
+
+%%
+%%  Unregisters the flow for the node..
+%%
+unregister_flow(NodeName, FlowModule) ->
+    eesb_node_mgr:unregister_flow(NodeName, FlowModule).
 
 

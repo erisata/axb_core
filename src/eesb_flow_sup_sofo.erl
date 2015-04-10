@@ -14,25 +14,60 @@
 %| limitations under the License.
 %\--------------------------------------------------------------------
 
-%%
-%%  Main supervisor.
-%%
--module(eesb_core_sup).
+%%%
+%%% Simple one-for-one supervisor for ESB flows.
+%%%
+-module(eesb_flow_sup_sofo).
+-behaviour(eesb_flow_sup).
 -behaviour(supervisor).
--export([start_link/0]).
+-export([start_spec/2, start_link/2]).
+-export([start_flow/3, register_flow/2, unregister_flow/2]).
 -export([init/1]).
+
+-define(REF(NodeName, FlowModule), {via, gproc, {n, l, {?MODULE, NodeName, FlowModule}}}).
 
 
 %% =============================================================================
 %% API functions.
 %% =============================================================================
 
+%%
+%%
+%%
+start_spec(SpecId, {Module, Function, Args}) ->
+    {SpecId,
+        {Module, Function, Args},
+        permanent, brutal_kill, supervisor,
+        [Module, ?MODULE]
+    }.
+
 
 %%
-%%  Create this supervisor.
+%%  Start this supervisor.
 %%
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, {}).
+start_link(NodeName, FlowModule) ->
+    supervisor:start_link(?REF(NodeName, FlowModule), ?MODULE, {NodeName, FlowModule}).
+
+
+%%
+%%  Start new flow under this supervisor.
+%%
+start_flow(NodeName, FlowModule, Args) ->
+    supervisor:start_child(?REF(NodeName, FlowModule), Args).
+
+
+%%
+%%
+%%
+register_flow(_NodeName, _FlowModule) ->
+    ok.
+
+
+%%
+%%
+%%
+unregister_flow(_NodeName, _FlowModule) ->
+    ok.
 
 
 
@@ -40,13 +75,11 @@ start_link() ->
 %% Callbacks for supervisor.
 %% =============================================================================
 
-
 %%
 %%  Supervisor initialization.
 %%
-init({}) ->
-    {ok, {{one_for_all, 100, 10}, [
-        eesb_node_mgr:start_spec()
-    ]}}.
+init({NodeName, FlowModule}) ->
+    {ok, ChildSpec} = eesb_flow:describe(NodeName, FlowModule, start_spec),
+    {ok, {{simple_one_for_one, 100, 1000}, [ChildSpec]}}.
 
 

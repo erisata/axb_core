@@ -16,5 +16,6 @@ doc/utf8/
 *.beam
 *~
 *.kate-swp
+*.bak
 ttb_last_config
 erl_crash.dump
