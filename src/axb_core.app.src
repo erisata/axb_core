@@ -13,11 +13,11 @@
 %| See the License for the specific language governing permissions and
 %| limitations under the License.
 %\--------------------------------------------------------------------
-{application, eesb_core, [
-    {description, "EESB: Core"},
+{application, axb_core, [
+    {description, "AxB: Core"},
     {vsn, git},
-    {registered, [eesb_core]},
-    {mod, {eesb_core_app, []}},
+    {registered, [axb_core]},
+    {mod, {axb_core_app, []}},
     {applications, [
         kernel,
         stdlib,

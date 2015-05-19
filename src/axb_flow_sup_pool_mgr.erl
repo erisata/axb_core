@@ -15,9 +15,11 @@
 %\--------------------------------------------------------------------
 
 %%%
-%%% TODO: EESB Console implementation.
-%%% Functions in this module are invoked from the shell script.
+%%% TODO: Implement flow monitor.
 %%%
--module(eesb_console).
+%%% It will report flow crashes, maybe will perform
+%%% restart back-pressure and suspending of flows.
+%%%
+-module(axb_flow_mon).
 
 

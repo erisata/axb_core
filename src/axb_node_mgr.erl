@@ -17,7 +17,7 @@
 %%%
 %%% Maintains a list of known nodes.
 %%%
--module(eesb_node_mgr).
+-module(axb_node_mgr).
 -behaviour(gen_server).
 -export([start_spec/0, start_link/0]).
 -export([register_node/2, unregister_node/1]).
@@ -114,7 +114,7 @@ handle_call({unregister_node, NodeName}, _From, State = #state{nodes = Nodes}) -
             Nodes;
         {value, #node{pid = NodePid, flows = Flows}, OtherNodes} ->
             UnregisterFlowFun = fun (FlowModule) ->
-                case eesb_flow_sup:unregister_flow(NodeName, FlowModule) of
+                case axb_flow_sup:unregister_flow(NodeName, FlowModule) of
                     ok -> ok;
                     {error, _Reason} -> ok
                 end

@@ -17,7 +17,7 @@
 %%%
 %%% Behaviour for flow supervisor.
 %%%
--module(eesb_flow_sup).
+-module(axb_flow_sup).
 -export([start_flow/4, register_flow/2, unregister_flow/2]).
 
 
@@ -50,7 +50,7 @@
 %%
 %%
 start_flow(NodeName, FlowModule, Args, Opts) ->
-    {ok, SupModule} = eesb_node:flow_sup(NodeName),
+    {ok, SupModule} = axb_node:flow_sup(NodeName),
     SupModule:start_flow(NodeName, FlowModule, Args, Opts).
 
 
@@ -58,7 +58,7 @@ start_flow(NodeName, FlowModule, Args, Opts) ->
 %%
 %%
 register_flow(NodeName, FlowModule) ->
-    {ok, SupModule} = eesb_node:flow_sup(NodeName),
+    {ok, SupModule} = axb_node:flow_sup(NodeName),
     SupModule:register_flow(NodeName, FlowModule).
 
 
@@ -66,7 +66,7 @@ register_flow(NodeName, FlowModule) ->
 %%
 %%
 unregister_flow(NodeName, FlowModule) ->
-    {ok, SupModule} = eesb_node:flow_sup(NodeName),
+    {ok, SupModule} = axb_node:flow_sup(NodeName),
     SupModule:unregister_flow(NodeName, FlowModule).
 
 

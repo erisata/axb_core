@@ -17,8 +17,8 @@
 %%%
 %%% Simple one-for-one supervisor for ESB flows.
 %%%
--module(eesb_flow_sup_sofo).
--behaviour(eesb_flow_sup).
+-module(axb_flow_sup_sofo).
+-behaviour(axb_flow_sup).
 -behaviour(supervisor).
 -export([start_spec/2, start_link/2]).
 -export([start_flow/4, register_flow/2, unregister_flow/2]).
@@ -79,7 +79,7 @@ unregister_flow(_NodeName, _FlowModule) ->
 %%  Supervisor initialization.
 %%
 init({NodeName, FlowModule}) ->
-    {ok, ChildSpec} = eesb_flow:describe(NodeName, FlowModule, start_spec),
+    {ok, ChildSpec} = axb_flow:describe(NodeName, FlowModule, start_spec),
     {ok, {{simple_one_for_one, 100, 1000}, [ChildSpec]}}.
 
 

@@ -30,7 +30,7 @@
 %%% work as a backend node. The current node can use clusteres services
 %%% before starting the clustering, as any other client.
 %%%
--module(eesb_node).
+-module(axb_node).
 -behaviour(gen_server). % TODO: Gen FSM
 -export([start_spec/2, start_link/5, flow_sup/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).

@@ -20,7 +20,7 @@
 %%% TODO: Stats (exometer).
 %%% TODO: Should the flow should be temporary in the supervisor?
 %%%
--module(eesb_flow).
+-module(axb_flow).
 -behaviour(gen_fsm).
 -export([describe/3, default/4, start_sup/4, start_link/4, respond/1, respond/2, wait_response/2]).
 -export([flow_id/0, route_id/0, client_ref/0, related_id/2]).
@@ -28,11 +28,11 @@
 -export([active/2, active/3]).
 
 -define(REF(FlowId), {via, gproc, {n, l, {?MODULE, FlowId}}}).
--define(FLOW_ID,     'eesb_flow$flow_id').
--define(ROUTE_ID,    'eesb_flow$route_id').
--define(CLIENT_REF,  'eesb_flow$client_ref').
--define(ADD_RELATED, 'eesb_flow$add_related').
--define(RESPONSE,    'eesb_flow$response').
+-define(FLOW_ID,     'axb_flow$flow_id').
+-define(ROUTE_ID,    'axb_flow$route_id').
+-define(CLIENT_REF,  'axb_flow$client_ref').
+-define(ADD_RELATED, 'axb_flow$add_related').
+-define(RESPONSE,    'axb_flow$response').
 
 
 %% =============================================================================
@@ -166,9 +166,9 @@ default(NodeName, FlowModule, start_spec, Opts) ->
     {ok, ChildSpec};
 
 default(NodeName, FlowModule, sup_spec, _Opts) ->
-    ChildSpec = eesb_flow_sup_sofo:start_spec(
-        {eesb_flow_sup_sofo, NodeName, FlowModule},
-        {eesb_flow_sup_sofo, start_link, [NodeName, FlowModule]}
+    ChildSpec = axb_flow_sup_sofo:start_spec(
+        {axb_flow_sup_sofo, NodeName, FlowModule},
+        {axb_flow_sup_sofo, start_link, [NodeName, FlowModule]}
     ),
     {ok, ChildSpec};
 
@@ -186,7 +186,7 @@ start_sup(NodeName, FlowModule, Args, Opts) ->
     {ok, FlowId, RouteId} = resolve_ids(Opts),
     {ok, ClientRef} = resolve_client_ref(Opts),
     NewOpts = [{flow_id, FlowId}, {route_id, RouteId}, {client, ClientRef} | Opts],
-    {ok, _} = eesb_flow_sup:start_flow(NodeName, FlowModule, Args, NewOpts),
+    {ok, _} = axb_flow_sup:start_flow(NodeName, FlowModule, Args, NewOpts),
     {ok, FlowId}.
 
 

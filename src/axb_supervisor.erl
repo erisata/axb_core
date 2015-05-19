@@ -14,40 +14,35 @@
 %| limitations under the License.
 %\--------------------------------------------------------------------
 
-%%
-%%  Main supervisor.
-%%
--module(eesb_core_sup).
--behaviour(supervisor).
--export([start_link/0]).
--export([init/1]).
+%%%
+%%% A supervisor that handles starting and stopping child processes
+%%% more conveniently. This supervisor should be useful for implementing
+%%% adapters, when some processes should be started/stopped depending
+%%% on the adapter's operation mode.
+%%%
+-module(axb_supervisor).
 
-
-%% =============================================================================
-%% API functions.
-%% =============================================================================
+-init(Args :: term()) -> {ok, SupSpec :: term()} | ignore.
 
 
 %%
-%%  Create this supervisor.
+%%
 %%
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, {}).
-
-
-
-%% =============================================================================
-%% Callbacks for supervisor.
-%% =============================================================================
+    supervisor:start_link().
 
 
 %%
-%%  Supervisor initialization.
 %%
-init({}) ->
-    {ok, {{one_for_all, 100, 10}, [
-        eesb_flow_mgr:start_spec(),
-        eesb_node_mgr:start_spec()
-    ]}}.
+%%
+start_child() ->
+    ok.
+
+
+%%
+%%
+%%
+stop_child() ->
+    ok.
 
 

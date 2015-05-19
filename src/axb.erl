@@ -15,34 +15,39 @@
 %\--------------------------------------------------------------------
 
 %%%
-%%% A supervisor that handles starting and stopping child processes
-%%% more conveniently. This supervisor should be useful for implementing
-%%% adapters, when some processes should be started/stopped depending
-%%% on the adapter's operation mode.
+%%% AxB API.
 %%%
--module(eesb_supervisor).
-
--init(Args :: term()) -> {ok, SupSpec :: term()} | ignore.
-
-
-%%
-%%
-%%
-start_link() ->
-    supervisor:start_link().
+%%% Mainly acts as a facade to other modules.
+%%%
+%%% TODO: Add riak support.
+%%% TODO: Add singleton functionality.
+%%%
+-module(axb).
+-export([register_node/2, unregister_node/1, register_flow/3, unregister_flow/2]).
 
 
 %%
+%%  Register and links the node.
+%%  Should be called from the node process.
 %%
-%%
-start_child() ->
-    ok.
+register_node(NodeName, Opts) ->
+    axb_node_mgr:register_node(NodeName, Opts).
 
 
 %%
+%%  Unlinks and unregisters the node.
 %%
+unregister_node(NodeName) ->
+    axb_node_mgr:unregister_node(NodeName).
+
+
 %%
-stop_child() ->
+%%  Returns AxB state:
+%%
+%%    * Nodes
+%%    * Node adapters, flow supervisors, flows types.
+%%
+info() ->   % TODO
     ok.
 
 

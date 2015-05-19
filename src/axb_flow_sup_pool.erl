@@ -17,8 +17,8 @@
 %%%
 %%% Supervisor maintaining all flow supervisors for the application.
 %%%
--module(eesb_flow_sup_pool).
--behaviour(eesb_flow_sup).
+-module(axb_flow_sup_pool).
+-behaviour(axb_flow_sup).
 -behaviour(supervisor).
 -export([start_spec/2, start_link/1]).
 -export([start_flow/4, register_flow/2, unregister_flow/2]).
@@ -66,17 +66,17 @@ start_link(NodeName) ->
 
 
 %%
-%%  Implements `eesb_flow_sup` behaviour.
+%%  Implements `axb_flow_sup` behaviour.
 %%
 start_flow(NodeName, FlowModule, Args, Opts) ->
-    eesb_flow_sup_sofo:start_flow(NodeName, FlowModule, Args, Opts).
+    axb_flow_sup_sofo:start_flow(NodeName, FlowModule, Args, Opts).
 
 
 %%
 %%
 %%
 register_flow(NodeName, FlowModule) ->
-    case eesb_flow:describe(NodeName, FlowModule, sup_spec) of
+    case axb_flow:describe(NodeName, FlowModule, sup_spec) of
         undefined ->
             ok;
         {ok, ChildSpec} ->

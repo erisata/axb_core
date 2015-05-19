@@ -15,49 +15,39 @@
 %\--------------------------------------------------------------------
 
 %%
-%%  OTP Application module for eesb_core.
+%%  Main supervisor.
 %%
--module(eesb_core_app).
--behaviour(application).
--export([start/2, stop/1]).
-
--define(APP, eesb_core).
-
-
-%% =============================================================================
-%%  Public API.
-%% =============================================================================
+-module(axb_core_sup).
+-behaviour(supervisor).
+-export([start_link/0]).
+-export([init/1]).
 
 
 %% =============================================================================
-%%  Application callbacks
+%% API functions.
 %% =============================================================================
 
 
 %%
-%% Start the application.
+%%  Create this supervisor.
 %%
-start(_StartType, _StartArgs) ->
-    ok = validate_env(application:get_all_env()),
-    eesb_core_sup:start_link().
-
-
-%%
-%% Stop the application.
-%%
-stop(_State) ->
-    ok.
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, {}).
 
 
 
 %% =============================================================================
-%%  Helper functions.
+%% Callbacks for supervisor.
 %% =============================================================================
 
+
 %%
-%%  Checks if application environment is valid.
+%%  Supervisor initialization.
 %%
-validate_env(_Env) ->
-    ok.
+init({}) ->
+    {ok, {{one_for_all, 100, 10}, [
+        axb_flow_mgr:start_spec(),
+        axb_node_mgr:start_spec()
+    ]}}.
 
 

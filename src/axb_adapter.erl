@@ -26,7 +26,7 @@
 %%% This behaviour is implemented not using a dedicated process,
 %%% in order to avoid bootleneck when processing adapter commands.
 %%%
--module(eesb_adapter).
+-module(axb_adapter).
 -behaviour(gen_server).
 
 
