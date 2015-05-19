@@ -158,10 +158,11 @@ describe(NodeName, FlowModule, What) ->
 %%
 %%  Default describe implementation.
 %%
-default(NodeName, FlowModule, start_spec, _Opts) ->
+default(NodeName, FlowModule, start_spec, Opts) ->
+    Restart = proplists:get_value(restart, Opts, temporary),
     SpecId = {?MODULE, NodeName, FlowModule},
     StartSpec = {?MODULE, start_link, [NodeName, FlowModule]},
-    ChildSpec = {SpecId, StartSpec, transient, brutal_kill, worker, [?MODULE, FlowModule]},
+    ChildSpec = {SpecId, StartSpec, Restart, brutal_kill, worker, [?MODULE, FlowModule]},
     {ok, ChildSpec};
 
 default(NodeName, FlowModule, sup_spec, _Opts) ->

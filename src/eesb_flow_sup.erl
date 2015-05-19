@@ -15,7 +15,7 @@
 %\--------------------------------------------------------------------
 
 %%%
-%%% Behaviour for flow sup.
+%%% Behaviour for flow supervisor.
 %%%
 -module(eesb_flow_sup).
 -export([start_flow/4, register_flow/2, unregister_flow/2]).

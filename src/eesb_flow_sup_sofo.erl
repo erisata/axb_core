@@ -34,9 +34,9 @@
 %%
 %%
 %%
-start_spec(SpecId, {Module, Function, Args}) ->
+start_spec(SpecId, FlowModule, FlowArgs) ->
     {SpecId,
-        {Module, Function, Args},
+        {?MODULE, start_link, [NodeName, FlowModule]},
         permanent, brutal_kill, supervisor,
         [Module, ?MODULE]
     }.

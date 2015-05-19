@@ -16,9 +16,22 @@
 
 %%%
 %%%
+%%% Startup procedure:
+%%%
+%%%   * Start node.
+%%%   * Start adapters / internal services.
+%%%   * Start flow supervisor / flows (in offline mode?).
+%%%   * Start adapters / external services.
+%%%   * (Take flows to the online mode?).
+%%%   * Start processes.
+%%%   * Register to the cluster. (Start the clustering? Maybe it is not the node's responsibility?)
+%%%
+%%% We can start the clustering so late, because it makes this node to
+%%% work as a backend node. The current node can use clusteres services
+%%% before starting the clustering, as any other client.
 %%%
 -module(eesb_node).
--behaviour(gen_server).
+-behaviour(gen_server). % TODO: Gen FSM
 -export([start_spec/2, start_link/5, flow_sup/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
@@ -79,8 +92,18 @@ flow_sup(NodeName) ->
 %%  Internal state.
 %% =============================================================================
 
+-record(flow_sup, {
+    name,
+    pid
+}).
+-record(adapter, {
+    name,
+    pid
+}).
 -record(state, {
-    mod :: module()
+    mod         :: module(),
+    flow_sups   :: [#flow_sup{}],
+    adapters    :: [#adapter{}]
 }).
 
 

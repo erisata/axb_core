@@ -15,39 +15,11 @@
 %\--------------------------------------------------------------------
 
 %%%
-%%% EESB API.
+%%% TODO: Implement flow monitor.
 %%%
-%%% Mainly acts as a facade to other modules.
+%%% It will report flow crashes, maybe will perform
+%%% restart back-pressure and suspending of flows.
 %%%
-%%% TODO: Add riak support.
-%%% TODO: Add singleton functionality.
-%%%
--module(eesb).
--export([register_node/2, unregister_node/1, register_flow/3, unregister_flow/2]).
-
-
-%%
-%%  Register and links the node.
-%%  Should be called from the node process.
-%%
-register_node(NodeName, Opts) ->
-    eesb_node_mgr:register_node(NodeName, Opts).
-
-
-%%
-%%  Unlinks and unregisters the node.
-%%
-unregister_node(NodeName) ->
-    eesb_node_mgr:unregister_node(NodeName).
-
-
-%%
-%%  Returns EESB state:
-%%
-%%    * Nodes
-%%    * Node adapters, flow supervisors, flows types.
-%%
-info() ->   % TODO
-    ok.
+-module(eesb_flow_mon).
 
 

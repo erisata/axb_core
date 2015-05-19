@@ -20,7 +20,7 @@
 -module(eesb_node_mgr).
 -behaviour(gen_server).
 -export([start_spec/0, start_link/0]).
--export([register_node/2, unregister_node/1, register_flow/3, unregister_flow/2]).
+-export([register_node/2, unregister_node/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 
@@ -59,50 +59,6 @@ unregister_node(NodeName) ->
     gen_server:call(?MODULE, {unregister_node, NodeName}).
 
 
-%%
-%%  Register a flow for the node.
-%%
-register_flow(NodeName, FlowModule, Opts) ->
-    gen_server:call(?MODULE, {register_flow, NodeName, FlowModule, Opts}).
-
-
-%%
-%%  Unregisters the flow for the node..
-%%
-unregister_flow(NodeName, FlowModule) ->
-    gen_server:call(?MODULE, {unregister_flow, NodeName, FlowModule}).
-
-
-
-% %%
-% %%  TODO: ...
-% %%
-% register_adapter() ->
-%     ok.
-%
-%
-% %%
-% %%  TODO: ...
-% %%
-% unregister_adapter() ->
-%     ok.
-%
-%
-%
-% %%
-% %%  TODO: ...
-% %%
-% register_endpoint() ->
-%     ok.
-%
-%
-% %%
-% %%  TODO: ...
-% %%
-% unregister_endpoint() ->
-%     ok.
-
-
 
 %% =============================================================================
 %%  Internal state.
@@ -110,8 +66,7 @@ unregister_flow(NodeName, FlowModule) ->
 
 -record(node, {
     name        :: term(),      %%  Node name.
-    pid         :: pid(),       %%  Node process PID.
-    flows       :: [module()]   %%  Registered flow modules.
+    pid         :: pid()        %%  Node process PID.
 }).
 
 -record(state, {
@@ -168,54 +123,8 @@ handle_call({unregister_node, NodeName}, _From, State = #state{nodes = Nodes}) -
             true = erlang:unlink(NodePid),
             OtherNodes
     end,
-    {reply, ok, State#state{nodes = NewNodes}};
+    {reply, ok, State#state{nodes = NewNodes}}.
 
-handle_call({register_flow, NodeName, FlowModule, _Opts}, _From, State = #state{nodes = Nodes}) ->
-    case lists:keyfind(NodeName, #node.name, Nodes) of
-        false ->
-            Reason = {node_not_registered, NodeName},
-            {reply, {error, Reason}, State};
-        Node = #node{flows = Flows} ->
-            case lists:member(FlowModule, Flows) of
-                true ->
-                    {reply, ok, State};
-                false ->
-                    case eesb_flow_sup:register_flow(NodeName, FlowModule) of
-                        ok ->
-                            NewNode = Node#node{flows = [FlowModule | Flows]},
-                            NewNodes = lists:keyreplace(NodeName, #node.name, Nodes, NewNode),
-                            {reply, ok, State#state{nodes = NewNodes}};
-                        {error, Reason} ->
-                            {reply, {error, Reason}, State}
-                    end
-            end
-    end;
-
-handle_call({unregister_flow, NodeName, FlowModule}, _From, State = #state{nodes = Nodes}) ->
-    case lists:keyfind(NodeName, #node.name, Nodes) of
-        false ->
-            Reason = {node_not_registered, NodeName},
-            {reply, {error, Reason}, State};
-        Node = #node{flows = Flows} ->
-            case lists:member(FlowModule, Flows) of
-                true ->
-                    UnregResult = case eesb_flow_sup:unregister_flow(NodeName, FlowModule) of
-                        ok                   -> ok;
-                        {error, not_found}   -> ok;
-                        {error, UnregReason} -> {error, UnregReason}
-                    end,
-                    case UnregResult of
-                        ok ->
-                            NewNode = Node#node{flows = lists:delete(FlowModule, Flows)},
-                            NewNodes = lists:keyreplace(NodeName, #node.name, Nodes, NewNode),
-                            {reply, ok, State#state{nodes = NewNodes}};
-                        {error, Reason} ->
-                            {reply, {error, Reason}, State}
-                    end;
-                false ->
-                    {reply, ok, State}
-            end
-    end.
 
 %%
 %%
