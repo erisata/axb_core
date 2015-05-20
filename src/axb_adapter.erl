@@ -133,6 +133,7 @@ command(NodeName, Module, Service, Direction, CommandName, CommandFun) ->
         true ->
             lager:debug("Executing ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, Module, Service]),
             % TODO: Add metrics here.
+            % TODO: Generate CTX_ID here, if the calling process does not have one.
             CommandFun();
         false ->
             lager:warning("Dropping ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, Module, Service]),
