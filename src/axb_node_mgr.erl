@@ -20,7 +20,7 @@
 -module(axb_node_mgr).
 -behaviour(gen_server).
 -export([start_spec/0, start_link/0]).
--export([register_node/2, unregister_node/1]).
+-export([register_node/2, unregister_node/1, registered_nodes/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 
@@ -57,6 +57,13 @@ register_node(NodeName, Opts) ->
 %%
 unregister_node(NodeName) ->
     gen_server:call(?MODULE, {unregister_node, NodeName}).
+
+
+%%
+%%  Returns a list of registered nodes.
+%%
+registered_nodes() ->
+    gen_server:call(?MODULE, registered_nodes).
 
 
 
@@ -98,9 +105,8 @@ handle_call({register_node, NodeName, NodePid, _Opts}, _From, State = #state{nod
         false ->
             true = erlang:link(NodePid),
             Node = #node{
-                name     = NodeName,
-                pid      = NodePid,
-                flows    = []
+                name = NodeName,
+                pid  = NodePid
             },
             {reply, ok, State#state{nodes = [Node | Nodes]}};
         #node{} ->
@@ -112,18 +118,15 @@ handle_call({unregister_node, NodeName}, _From, State = #state{nodes = Nodes}) -
     NewNodes = case lists:keytake(NodeName, #node.name, Nodes) of
         false ->
             Nodes;
-        {value, #node{pid = NodePid, flows = Flows}, OtherNodes} ->
-            UnregisterFlowFun = fun (FlowModule) ->
-                case axb_flow_sup:unregister_flow(NodeName, FlowModule) of
-                    ok -> ok;
-                    {error, _Reason} -> ok
-                end
-            end,
-            ok = lists:foreach(UnregisterFlowFun, Flows),
+        {value, #node{pid = NodePid}, OtherNodes} ->
             true = erlang:unlink(NodePid),
             OtherNodes
     end,
-    {reply, ok, State#state{nodes = NewNodes}}.
+    {reply, ok, State#state{nodes = NewNodes}};
+
+handle_call(registered_nodes, _From, State = #state{nodes = Nodes}) ->
+    NodeNames = [ N || #node{name = N} <- Nodes ],
+    {reply, {ok, NodeNames}, State}.
 
 
 %%

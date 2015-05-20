@@ -31,12 +31,12 @@
 %%% before starting the clustering, as any other client.
 %%%
 -module(axb_node).
--behaviour(gen_server). % TODO: Gen FSM
--export([start_spec/2, start_link/5, flow_sup/1]).
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-behaviour(gen_fsm).
+-export([start_spec/2, start_link/4]).
+-export([init/1, handle_sync_event/4, handle_event/3, handle_info/3, terminate/3, code_change/4]).
+-export([waiting/3, starting_internal/2, starting_flows/2, starting_external/2, ready/2]).
 
 -define(REF(NodeName), {via, gproc, {n, l, {?MODULE, NodeName}}}).
--define(NODE_FLOW_SUP(NodeName), {n, l, {?MODULE, NodeName, flow_sup}}).
 
 
 %% =============================================================================
@@ -74,17 +74,10 @@ start_spec(SpecId, {Module, Function, Args}) when is_atom(Module), is_atom(Funct
 
 
 %%
+%%  Start this node.
 %%
-%%
-start_link(NodeName, NodeFlowSup, Module, Args, Opts) ->
-    gen_server:start_link(?REF(NodeName), ?MODULE, {NodeName, NodeFlowSup, Module, Args}, Opts).
-
-
-%%
-%%  Get flow supervisor module for the specified node.
-%%
-flow_sup(NodeName) ->
-    {ok, gproc:lookup_value(?NODE_FLOW_SUP(NodeName))}.
+start_link(NodeName, Module, Args, Opts) ->
+    gen_fsm:start_link(?REF(NodeName), ?MODULE, {NodeName, Module, Args}, Opts).
 
 
 
@@ -101,6 +94,7 @@ flow_sup(NodeName) ->
     pid
 }).
 -record(state, {
+    name        :: atom(),
     mod         :: module(),
     flow_sups   :: [#flow_sup{}],
     adapters    :: [#adapter{}]
@@ -108,52 +102,144 @@ flow_sup(NodeName) ->
 
 
 %% =============================================================================
-%%  Callbacks for `gen_server`.
+%%  Callbacks for `gen_fsm`.
 %% =============================================================================
 
 %%
 %%
 %%
-init({NodeName, NodeFlowSup, Module, Args}) ->
-    true = gproc:reg(?NODE_FLOW_SUP(NodeName), NodeFlowSup),
-    ok = Module:init(Args),
-    State = #state{mod = Module},
-    {ok, State}.
+init({NodeName, Module, Args}) ->
+    case Module:init(Args) of
+        {ok, AdaptersToWait, FlowSupsToWait} ->
+            StateData = #state{
+                name = NodeName,
+                mod = Module,
+                flow_sups = [ #flow_sup{name = F} || F <- FlowSupsToWait ],
+                adapters  = [ #adapter {name = A} || A <- AdaptersToWait ]
+            },
+            to_wait_or_start(ok, StateData);
+        {stop, Reason} ->
+            {stop, Reason};
+        ignore ->
+            ignore
+    end.
 
 
 %%
 %%
 %%
-handle_call(_Request, _From, State) ->
-    {reply, undefined, State}.
+waiting({register_flow_sup, Name, Pid}, From, StateData = #state{flow_sups = FlowSups}) ->
+    NewFlowSup = #flow_sup{name = Name, pid = Pid},
+    Register = fun (NewFlowSups) ->
+        true = erlang:link(Pid),
+        true = gen_fsm:reply(From, ok),
+        to_wait_or_start(next_state, StateData#state{flow_sups = NewFlowSups})
+    end,
+    case lists:keyfind(Name, #flow_sup.name, FlowSups) of
+        false ->
+            Register([NewFlowSup | FlowSups]);
+        NewFlowSup ->
+            {reply, ok, waiting, StateData};
+        #flow_sup{pid = undefined} ->
+            Register(lists:keyreplace(Name, #flow_sup.name, FlowSups, NewFlowSup));
+        #flow_sup{} ->
+            {reply, {error, already_registered}, waiting, StateData}
+    end;
+
+waiting({register_adapter, Name, Pid}, From, StateData = #state{adapters = Adapters}) ->
+    NewAdapter = #adapter{name = Name, pid = Pid},
+    Register = fun (NewAdapters) ->
+        true = erlang:link(Pid),
+        true = gen_fsm:reply(From, ok),
+        to_wait_or_start(next_state, StateData#state{adapters = NewAdapters})
+    end,
+    case lists:keyfind(Name, #adapter.name, Adapters) of
+        false ->
+            Register([NewAdapter | Adapters]);
+        NewAdapter ->
+            {reply, ok, waiting, StateData};
+        #adapter{pid = undefined} ->
+            Register(lists:keyreplace(Name, #adapter.name, Adapters, NewAdapter));
+        #adapter{} ->
+            {reply, {error, already_registered}, waiting, StateData}
+    end.
+
+
+starting_internal(timeout, StateData) ->
+    {next_state, starting_flows, StateData, 0}.
+
+
+starting_flows(timeout, StateData) ->
+    {next_state, starting_external, StateData, 0}.
+
+
+starting_external(timeout, StateData) ->
+    {next_state, ready, StateData, 0}.
+
+
+ready(timeout, StateData = #state{name = Name}) ->
+    ok = axb_node_mgr:register_node(Name, []),
+    {next_state, ready, StateData}.
 
 
 %%
 %%
 %%
-handle_cast(_Request, State) ->
-    {noreply, State}.
+handle_sync_event(_Request, _From, StateName, StateData) ->
+    {reply, undefined, StateName, StateData}.
 
 
 %%
 %%
 %%
-handle_info(_Request, State) ->
-    {noreply, State}.
+handle_event(_Request, StateName, StateData) ->
+    {next_state, StateName, StateData}.
 
 
 %%
 %%
 %%
-terminate(_Reason, _State) ->
+handle_info(_Request, StateName, StateData) ->
+    {next_state, StateName, StateData}.
+
+
+%%
+%%
+%%
+terminate(_Reason, _StateName, _StateData) ->
     ok.
 
 
 %%
 %%
 %%
-code_change(OldVsn, State = #state{mod = Module}, Extra) ->
+code_change(OldVsn, StateName, StateData = #state{mod = Module}, Extra) ->
     ok = Module:code_change(OldVsn, Extra),
-    {ok, State}.
+    {ok, StateName, StateData}.
+
+
+
+%%% ============================================================================
+%%% Helper functions.
+%%% ============================================================================
+
+
+%%
+%%
+%%
+to_wait_or_start(Tag, StateData) ->
+    case have_all_deps(StateData) of
+        true  -> {Tag, starting_internal, StateData, 0};
+        false -> {Tag, waiting, StateData}
+    end.
+
+
+%%
+%%  Check, if we have all deps registered.
+%%
+have_all_deps(#state{flow_sups = FlowSups, adapters = Adapters}) ->
+    FlowSupsMissing = lists:keymember(undefined, #flow_sup.pid, FlowSups),
+    AdaptersMissing = lists:keymember(undefined, #adapter.pid,  Adapters),
+    not (FlowSupsMissing or AdaptersMissing).
 
 

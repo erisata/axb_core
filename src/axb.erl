@@ -23,23 +23,23 @@
 %%% TODO: Add singleton functionality.
 %%%
 -module(axb).
--export([register_node/2, unregister_node/1, register_flow/3, unregister_flow/2]).
+-export([info/0, info/1]).
 
-
-%%
-%%  Register and links the node.
-%%  Should be called from the node process.
-%%
-register_node(NodeName, Opts) ->
-    axb_node_mgr:register_node(NodeName, Opts).
-
-
-%%
-%%  Unlinks and unregisters the node.
-%%
-unregister_node(NodeName) ->
-    axb_node_mgr:unregister_node(NodeName).
-
+% TODO: Remove, move to axb_node.
+% %%
+% %%  Register and links the node.
+% %%  Should be called from the node process.
+% %%
+% register_node(NodeName, Opts) ->
+%     axb_node_mgr:register_node(NodeName, Opts).
+%
+%
+% %%
+% %%  Unlinks and unregisters the node.
+% %%
+% unregister_node(NodeName) ->
+%     axb_node_mgr:unregister_node(NodeName).
+%
 
 %%
 %%  Returns AxB state:
@@ -47,7 +47,14 @@ unregister_node(NodeName) ->
 %%    * Nodes
 %%    * Node adapters, flow supervisors, flows types.
 %%
-info() ->   % TODO
-    ok.
+info() ->
+    {ok, Nodes} = info(nodes),
+    {ok, [
+        {nodes, Nodes}
+    ]}.
+
+
+info(nodes) ->
+    axb_node_mgr:registered_nodes().
 
 
