@@ -18,10 +18,12 @@
 %%  Testcases for `axb_core`.
 %%
 -module(axb_core_SUITE).
+-compile([{parse_transform, lager_transform}]).
 -export([all/0, init_per_suite/1, end_per_suite/1]).
 -export([
     test_node_registration/1,
-    test_adapter_registration/1
+    test_adapter_registration/1,
+    test_adapter_services/1
 ]).
 -include_lib("common_test/include/ct.hrl").
 -include_lib("axb_core/include/axb.hrl").
@@ -32,7 +34,8 @@
 all() ->
     [
         test_node_registration,
-        test_adapter_registration
+        test_adapter_registration,
+        test_adapter_services
     ].
 
 
@@ -144,8 +147,44 @@ test_adapter_registration(_Config) ->
 
 
 %%
-%%  TODO: Test adapter services.
+%%  Test adapter services.
 %%
+test_adapter_services(_Config) ->
+    Node = axb_itest_node:name(),
+    %
+    % Start the node, it should wait for the adapter.
+    {ok, NodePid} = axb_itest_node:start_link(adapter),
+    {ok, AdapterPid} = axb_itest_adapter:start_link(single),
+    timer:sleep(50),
+    true = have_node(Node),
+    true = erlang:is_process_alive(NodePid),
+    {ok, [{axb_itest_adapter, running}]} = axb_node:info(Node, adapters),
+    {ok, [{axb_itest_adapter, [{main, true, true}]}]} = axb_node:info(Node, services),
+    {ok, a1} = axb_itest_adapter:send_message(a1),
+    {ok, a2} = axb_itest_adapter:message_received(a2),
+    %
+    % Dirable services.
+    ok = axb_node:adapter_service_online(Node, axb_itest_adapter, main, all, false),
+    {ok, [{axb_itest_adapter, [{main, false, false}]}]} = axb_node:info(Node, services),
+    {error, service_offline} = axb_itest_adapter:send_message(a1),
+    {error, service_offline} = axb_itest_adapter:message_received(a2),
+    %
+    % Enable internal service.
+    ok = axb_node:adapter_service_online(Node, axb_itest_adapter, main, internal, true),
+    {ok, [{axb_itest_adapter, [{main, true, false}]}]} = axb_node:info(Node, services),
+    {ok, a3}                 = axb_itest_adapter:send_message(a3),
+    {error, service_offline} = axb_itest_adapter:message_received(a4),
+    %
+    % External service online also.
+    ok = axb_node:adapter_service_online(Node, axb_itest_adapter, main, external, true),
+    {ok, [{axb_itest_adapter, [{main, true, true}]}]} = axb_node:info(Node, services),
+    {ok, a5} = axb_itest_adapter:send_message(a5),
+    {ok, a6} = axb_itest_adapter:message_received(a6),
+    %
+    % Cleanup.
+    ok = unlink_kill(NodePid),
+    ok = unlink_kill(AdapterPid),
+    ok.
 
 
 %%

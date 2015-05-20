@@ -20,8 +20,9 @@
 %%%
 -module(axb_itest_adapter).
 -behaviour(axb_adapter).
--export([start_link/1]).
--export([provided_services/1]).
+-compile([{parse_transform, lager_transform}]).
+-export([start_link/1, send_message/1, message_received/1]).
+-export([provided_services/1, service_changed/3]).
 
 
 %%% =============================================================================
@@ -35,6 +36,23 @@ start_link(Mode) ->
     axb_adapter:start_link(axb_itest_node:name(), ?MODULE, Mode, []).
 
 
+%%
+%%  Business-specific function.
+%%
+send_message(SomeArg) ->
+    axb_adapter:command(axb_itest_node:name(), ?MODULE, main, internal, send_message, fun () ->
+        {ok, SomeArg}
+    end).
+
+%%
+%%  Business-specific function.
+%%
+message_received(SomeArg) ->
+    axb_adapter:command(axb_itest_node:name(), ?MODULE, main, external, message_received, fun () ->
+        {ok, SomeArg}
+    end).
+
+
 
 %%% =============================================================================
 %%% Callbacks for `axb_adapter`.
@@ -44,6 +62,13 @@ start_link(Mode) ->
 %%  Returns a list of services, provided by this adapter.
 %%
 provided_services(empty) ->
-    {ok, []}.
+    {ok, []};
 
+provided_services(single) ->
+    {ok, [main]}.
 
+%%
+%%  Receives notification on a service state change.
+%%
+service_changed(_ServiceName, _Direction, _Online) ->
+    ok.

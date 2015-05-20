@@ -21,6 +21,7 @@
 %%%
 -module(axb_itest_adapter_sup).
 -behaviour(supervisor).
+-compile([{parse_transform, lager_transform}]).
 -export([start_link/1]).
 -export([init/1]).
 

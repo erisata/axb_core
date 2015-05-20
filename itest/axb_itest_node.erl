@@ -19,6 +19,7 @@
 %%%
 -module(axb_itest_node).
 -behaviour(axb_node).
+-compile([{parse_transform, lager_transform}]).
 -export([start_spec/0, start_link/1, name/0]).
 -export([init/1, code_change/2]).
 

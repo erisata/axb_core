@@ -15,7 +15,7 @@
 %\--------------------------------------------------------------------
 
 %%%
-%%% TODO: ESB Adapter behaviour.
+%%% ESB Adapter behaviour.
 %%%
 %%% Main functions of this behaviour are the following:
 %%%
@@ -23,19 +23,15 @@
 %%%   * Collect metrics of the adapter operation;
 %%%   * Define metadata, describing the adapter.
 %%%
-%%% TODO: Rewrite.
-%%% This behaviour is implemented not using a dedicated process,
-%%% in order to avoid bootleneck when processing adapter commands.
-%%% This also allows to have any structure for the particular adapter,
-%%% in terms of processes and supervision tree.
-%%%
 -module(axb_adapter).
 -behaviour(gen_server).
 -compile([{parse_transform, lager_transform}]).
--export([start_link/4, set_mode/5]).
+-export([start_link/4, info/3, service_online/5, command/6]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--define(REF(NodeName, AdapterModule), {via, gproc, {n, l, {?MODULE, NodeName, AdapterModule}}}).
+-define(REG(NodeName, Module), {n, l, {?MODULE, NodeName, Module}}).
+-define(REF(NodeName, Module), {via, gproc, ?REG(NodeName, Module)}).
+
 
 %%% =============================================================================
 %%% Callback definitions.
@@ -47,29 +43,38 @@
 -callback provided_services(
         Args :: term()
     ) ->
-        {ok, [{ServiceName :: term(), ServiceModule :: module()}]}.
+        {ok, [ServiceName :: atom()]}.
 
-% % % %%
-% % % %%
-% % % %%
-% % % -callback handle_describe(
-% % %         NodeName    :: term(),
-% % %         What        :: start_spec | sup_spec | meta
-% % %     ) ->
-% % %         {ok, Info :: term()}.
-% % %
-% % %
-% % % %%
-% % % %%
-% % % %%
-% % % -callback handle_mode_change(
-% % %         NodeName        :: atom(),
-% % %         AdapterModule   :: module(),
-% % %         Services        :: [Service :: atom()] | all,
-% % %         Mode            :: online | offline,
-% % %         Direction       :: internal | external | all
-% % %     ) ->
-% % %         ok.
+
+%%
+%%  This callback notifies the adapter about changed service states.
+%%
+-callback service_changed(
+        ServiceName :: atom(),
+        Direction   :: internal | external,
+        Online      :: boolean()
+    ) ->
+        ok.
+
+
+%%% =============================================================================
+%%% Internal state.
+%%% =============================================================================
+
+-record(service, {
+    name        :: term(),
+    internal    :: boolean(),
+    external    :: boolean()
+}).
+
+-record(state, {
+    node        :: atom(),
+    module      :: module(),
+    args        :: term(),
+    services    :: [#service{}]
+}).
+
+
 
 %%% =============================================================================
 %%% Public API.
@@ -83,36 +88,57 @@ start_link(NodeName, Module, Args, Opts) ->
 
 
 %%
+%%  Return some info about the adapter.
 %%
+info(NodeName, Module, What) ->
+    gen_server:call(?REF(NodeName, Module), {info, What}).
+
+
 %%
--spec set_mode(
+%%  Set operation mode for services, provided by the adapter.
+%%
+-spec service_online(
         NodeName        :: atom(),
-        AdapterModule   :: module(),
-        Services        :: [Service :: atom()] | all,
-        Mode            :: online | offline,
-        Direction       :: internal | external | all
+        Module          :: module(),
+        ServiceNames    :: atom() | [atom()] | all,
+        Direction       :: internal | external | all | both,
+        Online          :: boolean()
     ) ->
         ok.
 
-set_mode(NodeName, AdapterModule, Services, Mode, Direction) ->
-    ok.
+service_online(NodeName, Module, ServiceNames, Direction, Online) ->
+    gen_server:call(?REF(NodeName, Module), {service_online, ServiceNames, Direction, Online}).
 
 
-%%% =============================================================================
-%%% Internal state.
-%%% =============================================================================
+%%
+%%  Checks, is particular service is online.
+%%  This function uses gproc to perform this, therefore is not using the adapter process.
+%%
+service_online(NodeName, Module, ServiceName, Direction) ->
+    Services = gproc:lookup_value(?REG(NodeName, Module)),
+    #service{internal = I, external = E} = lists:keyfind(ServiceName, #service.name, Services),
+    case Direction of
+        internal -> I;
+        external -> E
+    end.
 
--record(service, {
-    name    :: term(),
-    module  :: module(),
-    online  :: none | external | internal | both
-}).
--record(state, {
-    node        :: atom(),
-    module      :: module(),
-    args        :: term(),
-    services    :: [#service{}]
-}).
+
+
+%%
+%%  Executes command in the context of particular service.
+%%  This function uses gproc to perform this, therefore is not using the adapter process.
+%%
+command(NodeName, Module, Service, Direction, CommandName, CommandFun) ->
+    case service_online(NodeName, Module, Service, Direction) of
+        true ->
+            lager:debug("Executing ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, Module, Service]),
+            % TODO: Add metrics here.
+            CommandFun();
+        false ->
+            lager:warning("Dropping ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, Module, Service]),
+            {error, service_offline}
+    end.
+
 
 
 %%% =============================================================================
@@ -124,13 +150,18 @@ set_mode(NodeName, AdapterModule, Services, Mode, Direction) ->
 %%
 init({NodeName, Module, Args}) ->
     case Module:provided_services(Args) of
-        {ok, Services} ->
+        {ok, ServiceNames} ->
+            Services = [
+                #service{name = N, internal = false, external = false}
+                || N <- ServiceNames
+            ],
             State = #state{
                 node     = NodeName,
                 module   = Module,
                 args     = Args,
-                services = [ #service{name = N, module = M, online = none} || {N, M} <- Services ]
+                services = Services
             },
+            true = gproc:set_value(?REG(NodeName, Module), Services),
             ok = axb_node:register_adapter(NodeName, Module, []),
             {ok, State}
     end.
@@ -139,21 +170,58 @@ init({NodeName, Module, Args}) ->
 %%
 %%
 %%
-handle_call(_Message, _From, State) ->
-    {reply, undefined, State}.
+handle_call({service_online, ServiceNames, Direction, Online}, _From, State) ->
+    #state{
+        node = NodeName,
+        module = Module,
+        services = Services
+    } = State,
+    AvailableServices = [ N || #service{name = N} <- Services ],
+    AffectedServices = case ServiceNames of
+        all                          -> AvailableServices;
+        _ when is_atom(ServiceNames) -> [ServiceNames];
+        _ when is_list(ServiceNames) -> lists:usort(ServiceNames)
+    end,
+    [] = AffectedServices -- AvailableServices,
+    ApplyActionFun = fun (Service = #service{name = ServiceName}) ->
+        case lists:member(ServiceName, AffectedServices) of
+            true ->
+                service_mode_change(Service, Direction, Online);
+            false ->
+                {Service, []}
+        end
+    end,
+    NewServicesWithActions = lists:map(ApplyActionFun, Services),
+    NewServices = [ S || {S, _} <- NewServicesWithActions],
+    ServActions = lists:append([ A || {_, A} <- NewServicesWithActions]),
+    true = gproc:set_value(?REG(NodeName, Module), NewServices),    % NOTE: Possible race condition (vs service_changed).
+    NotifyActionsFun = fun ({SN, D, O}) ->
+        lager:info("Node ~p adapter ~p service ~p direction=~p set online=~p", [NodeName, Module, SN, D, O]),
+        ok = Module:service_changed(SN, D, O)
+    end,
+    ok = lists:foreach(NotifyActionsFun, ServActions),
+    NewState = State#state{services = NewServices},
+    {reply, ok, NewState};
+
+handle_call({info, What}, _From, State = #state{services = Services}) ->
+    case What of
+        services ->
+            ServiceInfo = [ {N, I, E} || #service{name = N, internal = I, external = E} <- Services ],
+            {reply, {ok, ServiceInfo}, State}
+    end.
 
 
 %%
 %%
 %%
-handle_cast(Message, State) ->
+handle_cast(_Message, State) ->
     {noreply, State}.
 
 
 %%
 %%
 %%
-handle_info(Message, State) ->
+handle_info(_Message, State) ->
     {noreply, State}.
 
 
@@ -166,7 +234,28 @@ terminate(_Reason, _State) ->
 %%
 %%
 %%
-code_change(OldVsn, State, Extra) ->
+code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+
+%%% =============================================================================
+%%% Internal functions.
+%%% =============================================================================
+
+%%
+%%  Returns service state, after a change applied and actions, needed for that.
+%%
+service_mode_change(Service = #service{name = Name, internal = Internal, external = External}, Direction, Online) ->
+    {NewInternal, NewExternal} = case Direction of
+        internal -> {Online,   External};
+        external -> {Internal, Online};
+        all      -> {Online,   Online};
+        both     -> {Online,   Online}
+    end,
+    Actions = lists:append([
+        case NewInternal =:= Internal of true -> []; false -> [{Name, internal, NewInternal}] end,
+        case NewExternal =:= External of true -> []; false -> [{Name, external, NewExternal}] end
+    ]),
+    {Service#service{internal = NewInternal, external = NewExternal}, Actions}.
 
 

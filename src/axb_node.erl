@@ -40,13 +40,15 @@
     register_adapter/3,
     register_flow_sup/3,
     unregister_adapter/2,
-    unregister_flow_sup/2
+    unregister_flow_sup/2,
+    adapter_service_online/5
 ]).
 -export([init/1, handle_sync_event/4, handle_event/3, handle_info/3, terminate/3, code_change/4]).
 -export([waiting/2, starting_internal/2, starting_flows/2, starting_external/2, ready/2]).
 
 -define(REF(NodeName), {via, gproc, {n, l, {?MODULE, NodeName}}}).
 -define(WAIT_INFO_DELAY, 5000).
+
 
 %%% =============================================================================
 %%% Callback definitions.
@@ -132,6 +134,22 @@ unregister_flow_sup(NodeName, FlowSupName) ->
     gen_fsm:sync_send_all_state_event(?REF(NodeName), {unregister_flow_sup, FlowSupName}).
 
 
+%%
+%%  Set operation mode for services, provided by the adapter.
+%%
+-spec adapter_service_online(
+        NodeName        :: atom(),
+        Module          :: module(),
+        ServiceNames    :: atom() | [atom()] | all,
+        Direction       :: internal | external | all | both,
+        Online          :: boolean()
+    ) ->
+        ok.
+
+adapter_service_online(NodeName, Module, ServiceNames, Direction, Online) ->
+    axb_adapter:service_online(NodeName, Module, ServiceNames, Direction, Online).
+
+
 
 %%% =============================================================================
 %%% Internal state.
@@ -141,16 +159,19 @@ unregister_flow_sup(NodeName, FlowSupName) ->
     name,
     pid
 }).
+
 -record(adapter, {
     mod,
     pid
 }).
+
 -record(state, {
     name        :: atom(),
     mod         :: module(),
     flow_sups   :: [#flow_sup{}],
     adapters    :: [#adapter{}]
 }).
+
 
 
 %%% =============================================================================
@@ -197,7 +218,7 @@ waiting(timeout, StateData = #state{adapters = Adapters, flow_sups = FlowSups}) 
 starting_internal(timeout, StateData = #state{name = NodeName, adapters = Adapters}) ->
     lager:debug("Node ~p is starting internal services for all known adapters.", [NodeName]),
     StartAdapterInternalServices = fun (#adapter{mod = AdapterModule}) ->
-        ok = axb_adapter:set_mode(NodeName, AdapterModule, all, online, internal)
+        ok = axb_adapter:service_online(NodeName, AdapterModule, all, internal, true)
     end,
     ok = lists:foreach(StartAdapterInternalServices, Adapters),
     {next_state, starting_flows, StateData, 0}.
@@ -218,7 +239,7 @@ starting_flows(timeout, StateData = #state{name = NodeName}) ->
 starting_external(timeout, StateData = #state{name = NodeName, adapters = Adapters}) ->
     lager:debug("Node ~p is starting external services for all known adapters.", [NodeName]),
     StartAdapterExternalServices = fun (#adapter{mod = AdapterModule}) ->
-        ok = axb_adapter:set_mode(NodeName, AdapterModule, all, online, external)
+        ok = axb_adapter:service_online(NodeName, AdapterModule, all, all, true)
     end,
     ok = lists:foreach(StartAdapterExternalServices, Adapters),
     {next_state, ready, StateData, 0}.
@@ -318,6 +339,7 @@ handle_sync_event({unregister_flow_sup, Name}, _From, StateName, StateData) ->
 
 handle_sync_event({info, What}, _From, StateName, StateData) ->
     #state{
+        name = NodeName,
         adapters = Adapters,
         flow_sups = FlowSups
     } = StateData,
@@ -329,7 +351,14 @@ handle_sync_event({info, What}, _From, StateName, StateData) ->
         flow_sups ->
             {ok, [
                 {N, flow_sup_status(F)} || F = #flow_sup{name = N} <- FlowSups
-            ]}
+            ]};
+        services ->
+            AdapterServices = fun (#adapter{mod = AdapterModule}) ->
+                {ok, Services} = axb_adapter:info(NodeName, AdapterModule, services),
+                {AdapterModule, Services}
+            end,
+            Services = lists:map(AdapterServices, Adapters),
+            {ok, Services}
     end,
     {reply, Reply, StateName, StateData}.
 
@@ -353,11 +382,11 @@ handle_info({'EXIT', FromPid, Reason}, StateName, StateData) when is_pid(FromPid
     FlowSup = lists:keyfind(FromPid, #flow_sup.pid, FlowSups),
     case {Adapter, FlowSup} of
         {#adapter{mod = Mod}, false} ->
-            lager:warning("Adapter was down, module=~p, pid=~p, reason=~p", [Mod, FromPid, Reason]),
+            lager:warning("Adapter terminated, module=~p, pid=~p, reason=~p", [Mod, FromPid, Reason]),
             NewAdapters = lists:keyreplace(Mod, #adapter.mod, Adapters, Adapter#adapter{pid = undefined}),
             {next_state, StateName, StateData#state{adapters = NewAdapters}};
         {false, #flow_sup{name = Name}} ->
-            lager:warning("Flow supervisor was down, name=~p, pid=~p, reason=~p", [Name, FromPid, Reason]),
+            lager:warning("Flow supervisor terminated, name=~p, pid=~p, reason=~p", [Name, FromPid, Reason]),
             NewFlowSups = lists:keyreplace(Name, #flow_sup.name, FlowSups, FlowSup#flow_sup{pid = undefined}),
             {next_state, StateName, StateData#state{flow_sups = NewFlowSups}};
         {false, false} ->
