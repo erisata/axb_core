@@ -19,7 +19,7 @@
 %%%
 -module(axb_itest_node).
 -behaviour(axb_node).
--export([start_spec/0, start_link/0, name/0]).
+-export([start_spec/0, start_link/1, name/0]).
 -export([init/1, code_change/2]).
 
 -define(NAME, axb_itest).
@@ -30,6 +30,7 @@
 
 %%
 %%  Creates supervisor child specification for this module.
+%%  TODO: Review.
 %%
 start_spec() ->
     axb_node:start_spec(?MODULE, {?MODULE, start_link, [esb:name()]}).
@@ -38,8 +39,8 @@ start_spec() ->
 %%
 %%  Start this module.
 %%
-start_link() ->
-    axb_node:start_link(?NAME, ?MODULE, {}, []).
+start_link(Mode) ->
+    axb_node:start_link(?NAME, ?MODULE, Mode, []).
 
 
 %%
@@ -56,8 +57,13 @@ name() ->
 %%
 %%  Initialize ESB node.
 %%
-init({}) ->
+init(empty) ->
     AdaptersToWait = [],
+    FlowSupsToWait = [],
+    {ok, AdaptersToWait, FlowSupsToWait};
+
+init(adapter) ->
+    AdaptersToWait = [axb_itest_adapter],
     FlowSupsToWait = [],
     {ok, AdaptersToWait, FlowSupsToWait}.
 

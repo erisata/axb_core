@@ -1,5 +1,5 @@
 %/--------------------------------------------------------------------
-%| Copyright 2015 Erisata, UAB (Ltd.)
+%| Copyright 2013-2015 Erisata, UAB (Ltd.)
 %|
 %| Licensed under the Apache License, Version 2.0 (the "License");
 %| you may not use this file except in compliance with the License.
@@ -15,11 +15,28 @@
 %\--------------------------------------------------------------------
 
 %%%
-%%% TODO: Implement flow monitor.
+%%% Adapter implementation for tests.
+%%% This module is not a process.
 %%%
-%%% It will report flow crashes, maybe will perform
-%%% restart back-pressure and suspending of flows.
-%%%
--module(axb_flow_sup_pool_mgr).
+-module(axb_itest_adapter).
+-behaviour(axb_adapter).
+-export([register/0]).
+
+
+%%% =============================================================================
+%%% API functions.
+%%% =============================================================================
+
+%%
+%%
+%%
+register() ->
+    axb_adapter:register(axb_itest_node:name(), ?MODULE, []).
+
+
+
+%%% =============================================================================
+%%% Callbacks for `axb_adapter`.
+%%% =============================================================================
 
 

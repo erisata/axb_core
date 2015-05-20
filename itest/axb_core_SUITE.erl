@@ -20,7 +20,8 @@
 -module(axb_core_SUITE).
 -export([all/0, init_per_suite/1, end_per_suite/1]).
 -export([
-    test_node_registration/1
+    test_node_registration/1,
+    test_adapter_registration/1
 ]).
 -include_lib("common_test/include/ct.hrl").
 -include_lib("axb_core/include/axb.hrl").
@@ -30,7 +31,8 @@
 %%
 all() ->
     [
-        test_node_registration
+        test_node_registration,
+        test_adapter_registration
     ].
 
 
@@ -75,12 +77,32 @@ unlink_kill(Pid) ->
 %%
 test_node_registration(_Config) ->
     false = have_node(axb_itest_node:name()),
-    {ok, Pid} = axb_itest_node:start_link(),
+    {ok, Pid} = axb_itest_node:start_link(empty),
     timer:sleep(50),
     true = have_node(axb_itest_node:name()),
     ok = unlink_kill(Pid),
     timer:sleep(50),
     false = have_node(axb_itest_node:name()),
+    ok.
+
+
+%%
+%%  Check if adapter can be registered to the node, and
+%%  if the node waits for adapters.
+%%
+test_adapter_registration(_Config) ->
+    % Start the node, it should wait for the adapter.
+    {ok, NodePid} = axb_itest_node:start_link(adapter),
+    timer:sleep(50),
+    false = have_node(axb_itest_node:name()),
+    % Start the adapter, the node should be ready now.
+    {ok, AdapterPid} = axb_itest_adapter_sup:start_link(),
+    timer:sleep(50),
+    true = have_node(axb_itest_node:name()),
+    true = erlang:is_process_alive(NodePid),
+    % Cleanup.
+    ok = unlink_kill(NodePid),
+    ok = unlink_kill(AdapterPid),
     ok.
 
 

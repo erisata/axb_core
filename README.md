@@ -41,7 +41,7 @@ Pagalvot
 -----------------
 
   * ESB turėtų leisti paskirstyti flow'us per serverius, gal pagal tipą.
-  * Naujų integracijų kūrimas turi būti nesudėtinga.
+  * Naujų integracijų kūrimas turi būti nesudėtingas.
 
 
 Naudoti `Riak Core` dėl:
@@ -55,10 +55,5 @@ Aplikacija embedded vs separate:
   * Crash'inantis vienos aplikacijos flow'ų super supervizoriui kitos aplikacijos turbūt neturi nukentėti.
   * Pagalvoti per upgrade'ų prizmę.
   * Pergalvoti per adresacijos prizmę.
-
-
-
-
-
 
 

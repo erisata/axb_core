@@ -32,7 +32,7 @@
 %%%
 -module(axb_node).
 -behaviour(gen_fsm).
--export([start_spec/2, start_link/4]).
+-export([start_spec/2, start_link/4, register_adapter/3]).
 -export([init/1, handle_sync_event/4, handle_event/3, handle_info/3, terminate/3, code_change/4]).
 -export([waiting/3, starting_internal/2, starting_flows/2, starting_external/2, ready/2]).
 
@@ -80,6 +80,14 @@ start_link(NodeName, Module, Args, Opts) ->
     gen_fsm:start_link(?REF(NodeName), ?MODULE, {NodeName, Module, Args}, Opts).
 
 
+%%
+%%  Register an adapter to this node.
+%%
+register_adapter(NodeName, AdapterModule, _Opts) ->
+    AdapterPid = self(),
+    gen_fsm:sync_send_event(?REF(NodeName), {register_adapter, AdapterModule, AdapterPid}).
+
+
 
 %% =============================================================================
 %%  Internal state.
@@ -90,7 +98,7 @@ start_link(NodeName, Module, Args, Opts) ->
     pid
 }).
 -record(adapter, {
-    name,
+    mod,
     pid
 }).
 -record(state, {
@@ -109,13 +117,14 @@ start_link(NodeName, Module, Args, Opts) ->
 %%
 %%
 init({NodeName, Module, Args}) ->
+    erlang:process_flag(trap_exit, true),
     case Module:init(Args) of
         {ok, AdaptersToWait, FlowSupsToWait} ->
             StateData = #state{
                 name = NodeName,
                 mod = Module,
                 flow_sups = [ #flow_sup{name = F} || F <- FlowSupsToWait ],
-                adapters  = [ #adapter {name = A} || A <- AdaptersToWait ]
+                adapters  = [ #adapter {mod = A} || A <- AdaptersToWait ]
             },
             to_wait_or_start(ok, StateData);
         {stop, Reason} ->
@@ -146,25 +155,28 @@ waiting({register_flow_sup, Name, Pid}, From, StateData = #state{flow_sups = Flo
             {reply, {error, already_registered}, waiting, StateData}
     end;
 
-waiting({register_adapter, Name, Pid}, From, StateData = #state{adapters = Adapters}) ->
-    NewAdapter = #adapter{name = Name, pid = Pid},
+waiting({register_adapter, Module, Pid}, From, StateData = #state{adapters = Adapters}) ->
+    NewAdapter = #adapter{mod = Module, pid = Pid},
     Register = fun (NewAdapters) ->
         true = erlang:link(Pid),
-        true = gen_fsm:reply(From, ok),
+        _ = gen_fsm:reply(From, ok),
         to_wait_or_start(next_state, StateData#state{adapters = NewAdapters})
     end,
-    case lists:keyfind(Name, #adapter.name, Adapters) of
+    case lists:keyfind(Module, #adapter.mod, Adapters) of
         false ->
             Register([NewAdapter | Adapters]);
         NewAdapter ->
             {reply, ok, waiting, StateData};
         #adapter{pid = undefined} ->
-            Register(lists:keyreplace(Name, #adapter.name, Adapters, NewAdapter));
+            Register(lists:keyreplace(Module, #adapter.mod, Adapters, NewAdapter));
         #adapter{} ->
             {reply, {error, already_registered}, waiting, StateData}
     end.
 
 
+%%
+%% TODO: Registrations can be performed during and after startup.
+%%
 starting_internal(timeout, StateData) ->
     {next_state, starting_flows, StateData, 0}.
 
@@ -199,6 +211,9 @@ handle_event(_Request, StateName, StateData) ->
 %%
 %%
 %%
+handle_info({'EXIT', _FromPid, Reason}, _StateName, StateData) ->
+    {stop, Reason, StateData};
+
 handle_info(_Request, StateName, StateData) ->
     {next_state, StateName, StateData}.
 

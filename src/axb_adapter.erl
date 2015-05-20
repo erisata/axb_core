@@ -21,18 +21,18 @@
 %%%
 %%%   * Allow management of services, provided by the adapter (disable temporary, etc.);
 %%%   * Collect metrics of the adapter operation;
-%%%   * Define metada, describing the adapter.
+%%%   * Define metadata, describing the adapter.
 %%%
 %%% This behaviour is implemented not using a dedicated process,
 %%% in order to avoid bootleneck when processing adapter commands.
 %%%
 -module(axb_adapter).
--behaviour(gen_server).
+-export([register/3, set_mode/5]).
 
 
-%% =============================================================================
-%%  Callback definitions.
-%% =============================================================================
+%%% =============================================================================
+%%% Callback definitions.
+%%% =============================================================================
 
 %%
 %%
@@ -56,6 +56,30 @@
     ) ->
         ok.
 
+%%% =============================================================================
+%%% Public API.
+%%% =============================================================================
+
+%%
+%%  Register an adapter to the specific node.
+%%  The calling process will be linked with the node
+%%  and will represent the adapter (termination will
+%%  cause unregistering of the adapter).
+%%
+%%  No options are currently supported.
+%%
+-spec register(
+        NodeName        :: atom(),
+        AdapterModule   :: module(),
+        Opts            :: list()
+    ) ->
+        ok |
+        {error, Reason :: term()}.
+
+register(NodeName, AdapterModule, Opts) ->
+    axb_node:register_adapter(NodeName, AdapterModule, Opts).
+
+
 %%
 %%
 %%
@@ -70,3 +94,5 @@
 
 set_mode(NodeName, AdapterModule, Services, Mode, Direction) ->
     ok.
+
+

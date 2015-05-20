@@ -1,5 +1,5 @@
 %/--------------------------------------------------------------------
-%| Copyright 2015 Erisata, UAB (Ltd.)
+%| Copyright 2013-2015 Erisata, UAB (Ltd.)
 %|
 %| Licensed under the Apache License, Version 2.0 (the "License");
 %| you may not use this file except in compliance with the License.
@@ -14,39 +14,36 @@
 %| limitations under the License.
 %\--------------------------------------------------------------------
 
-%%
-%%  Main supervisor.
-%%
--module(axb_core_sup).
+%%%
+%%% Adapter supervisor for tests.
+%%%
+-module(axb_itest_adapter_sup).
 -behaviour(supervisor).
 -export([start_link/0]).
 -export([init/1]).
 
 
-%% =============================================================================
-%% API functions.
-%% =============================================================================
-
+%%% =============================================================================
+%%% API functions.
+%%% =============================================================================
 
 %%
-%%  Create this supervisor.
+%%
 %%
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, {}).
+    supervisor:start_link(?MODULE, {}).
 
 
 
-%% =============================================================================
-%% Callbacks for supervisor.
-%% =============================================================================
-
+%%% =============================================================================
+%%% Callbacks for `supervisor`.
+%%% =============================================================================
 
 %%
-%%  Supervisor initialization.
+%%
 %%
 init({}) ->
-    {ok, {{one_for_all, 100, 10}, [
-        axb_node_mgr:start_spec()
-    ]}}.
+    ok = axb_itest_adapter:register(),
+    {ok, {{one_for_all, 100, 10}, []}}.
 
 

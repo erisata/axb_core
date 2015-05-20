@@ -21,28 +21,28 @@
 %%% on the adapter's operation mode.
 %%%
 -module(axb_supervisor).
-
--init(Args :: term()) -> {ok, SupSpec :: term()} | ignore.
-
-
-%%
-%%
-%%
-start_link() ->
-    supervisor:start_link().
-
-
-%%
-%%
-%%
-start_child() ->
-    ok.
-
-
-%%
-%%
-%%
-stop_child() ->
-    ok.
-
-
+% TODO: All
+% -init(Args :: term()) -> {ok, SupSpec :: term()} | ignore.
+%
+%
+% %%
+% %%
+% %%
+% start_link() ->
+%     supervisor:start_link().
+%
+%
+% %%
+% %%
+% %%
+% start_child() ->
+%     ok.
+%
+%
+% %%
+% %%
+% %%
+% stop_child() ->
+%     ok.
+%
+%
