@@ -18,6 +18,7 @@
 %%% Behaviour for flow supervisor.
 %%%
 -module(axb_flow_sup).
+-compile([{parse_transform, lager_transform}]).
 % -export([start_flow/4, register_flow/2, unregister_flow/2]).
 %
 %

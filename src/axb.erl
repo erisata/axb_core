@@ -23,6 +23,7 @@
 %%% TODO: Add singleton functionality.
 %%%
 -module(axb).
+-compile([{parse_transform, lager_transform}]).
 -export([info/0, info/1]).
 
 % TODO: Remove, move to axb_node.

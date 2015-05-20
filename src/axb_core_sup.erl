@@ -19,6 +19,7 @@
 %%
 -module(axb_core_sup).
 -behaviour(supervisor).
+-compile([{parse_transform, lager_transform}]).
 -export([start_link/0]).
 -export([init/1]).
 

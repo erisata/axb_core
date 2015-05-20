@@ -18,6 +18,7 @@
 %%% Simple one-for-one supervisor for ESB flows.
 %%%
 -module(axb_flow_sup_sofo).
+-compile([{parse_transform, lager_transform}]).
 % -behaviour(axb_flow_sup).
 % -behaviour(supervisor).
 % -export([start_spec/2, start_link/2]).

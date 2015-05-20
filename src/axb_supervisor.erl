@@ -21,6 +21,7 @@
 %%% on the adapter's operation mode.
 %%%
 -module(axb_supervisor).
+-compile([{parse_transform, lager_transform}]).
 % TODO: All
 % -init(Args :: term()) -> {ok, SupSpec :: term()} | ignore.
 %

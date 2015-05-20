@@ -19,6 +19,7 @@
 %%
 -module(axb_core_app).
 -behaviour(application).
+-compile([{parse_transform, lager_transform}]).
 -export([start/2, stop/1]).
 
 -define(APP, axb_core).

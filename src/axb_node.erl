@@ -48,9 +48,9 @@
 -define(REF(NodeName), {via, gproc, {n, l, {?MODULE, NodeName}}}).
 -define(WAIT_INFO_DELAY, 5000).
 
-%% =============================================================================
-%%  Callback definitions.
-%% =============================================================================
+%%% =============================================================================
+%%% Callback definitions.
+%%% =============================================================================
 
 %%
 %%
@@ -65,9 +65,9 @@
 
 
 
-%% =============================================================================
-%% API functions.
-%% =============================================================================
+%%% =============================================================================
+%%% API functions.
+%%% =============================================================================
 
 %%
 %%  Create Supervisor's child spec for starting this node.
@@ -133,9 +133,9 @@ unregister_flow_sup(NodeName, FlowSupName) ->
 
 
 
-%% =============================================================================
-%%  Internal state.
-%% =============================================================================
+%%% =============================================================================
+%%% Internal state.
+%%% =============================================================================
 
 -record(flow_sup, {
     name,
@@ -153,9 +153,9 @@ unregister_flow_sup(NodeName, FlowSupName) ->
 }).
 
 
-%% =============================================================================
-%%  Callbacks for `gen_fsm`.
-%% =============================================================================
+%%% =============================================================================
+%%% Callbacks for `gen_fsm`.
+%%% =============================================================================
 
 %%
 %%
@@ -181,7 +181,9 @@ init({NodeName, Module, Args}) ->
     end.
 
 
-
+%%
+%%  The `waiting` state.
+%%
 waiting(timeout, StateData = #state{adapters = Adapters, flow_sups = FlowSups}) ->
     MissingAdapters = [ M || #adapter{mod = M, pid = undefined} <- Adapters ],
     MissingFlowSups = [ N || #flow_sup{name = N, pid = undefined} <- FlowSups ],
@@ -190,22 +192,44 @@ waiting(timeout, StateData = #state{adapters = Adapters, flow_sups = FlowSups}) 
 
 
 %%
-%% TODO: Registrations can be performed during and after startup.
+%%  The `starting_internal` state.
 %%
-starting_internal(timeout, StateData) ->
+starting_internal(timeout, StateData = #state{name = NodeName, adapters = Adapters}) ->
+    lager:debug("Node ~p is starting internal services for all known adapters.", [NodeName]),
+    StartAdapterInternalServices = fun (#adapter{mod = AdapterModule}) ->
+        ok = axb_adapter:set_mode(NodeName, AdapterModule, all, online, internal)
+    end,
+    ok = lists:foreach(StartAdapterInternalServices, Adapters),
     {next_state, starting_flows, StateData, 0}.
 
 
-starting_flows(timeout, StateData) ->
+%%
+%%  The `starting_flows` state.
+%%
+starting_flows(timeout, StateData = #state{name = NodeName}) ->
+    lager:debug("Node ~p is starting flow supervisors.", [NodeName]),
+    % TODO: Implement
     {next_state, starting_external, StateData, 0}.
 
 
-starting_external(timeout, StateData) ->
+%%
+%%  The `starting_external` state.
+%%
+starting_external(timeout, StateData = #state{name = NodeName, adapters = Adapters}) ->
+    lager:debug("Node ~p is starting external services for all known adapters.", [NodeName]),
+    StartAdapterExternalServices = fun (#adapter{mod = AdapterModule}) ->
+        ok = axb_adapter:set_mode(NodeName, AdapterModule, all, online, external)
+    end,
+    ok = lists:foreach(StartAdapterExternalServices, Adapters),
     {next_state, ready, StateData, 0}.
 
 
-ready(timeout, StateData = #state{name = Name}) ->
-    ok = axb_node_mgr:register_node(Name, []),
+%%
+%%  The `ready` state.
+%%
+ready(timeout, StateData = #state{name = NodeName}) ->
+    ok = axb_node_mgr:register_node(NodeName, []),
+    lager:debug("Node ~p is ready.", [NodeName]),
     {next_state, ready, StateData}.
 
 

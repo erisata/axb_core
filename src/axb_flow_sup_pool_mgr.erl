@@ -21,5 +21,6 @@
 %%% restart back-pressure and suspending of flows.
 %%%
 -module(axb_flow_sup_pool_mgr).
+-compile([{parse_transform, lager_transform}]).
 
 

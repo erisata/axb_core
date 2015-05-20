@@ -18,3 +18,4 @@
 %%%
 %%%
 -module(axb_flow_sup_pool_sup).
+-compile([{parse_transform, lager_transform}]).

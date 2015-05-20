@@ -18,6 +18,7 @@
 %%% Supervisor maintaining all flow supervisors for the application.
 %%%
 -module(axb_flow_sup_pool).
+-compile([{parse_transform, lager_transform}]).
 % -behaviour(axb_flow_sup).
 % -behaviour(supervisor).
 % -export([start_spec/2, start_link/1]).

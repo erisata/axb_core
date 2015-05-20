@@ -23,63 +23,63 @@
 %%%   * Collect metrics of the adapter operation;
 %%%   * Define metadata, describing the adapter.
 %%%
+%%% TODO: Rewrite.
 %%% This behaviour is implemented not using a dedicated process,
 %%% in order to avoid bootleneck when processing adapter commands.
 %%% This also allows to have any structure for the particular adapter,
 %%% in terms of processes and supervision tree.
 %%%
 -module(axb_adapter).
--export([register/3, set_mode/5]).
+-behaviour(gen_server).
+-compile([{parse_transform, lager_transform}]).
+-export([start_link/4, set_mode/5]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
+-define(REF(NodeName, AdapterModule), {via, gproc, {n, l, {?MODULE, NodeName, AdapterModule}}}).
 
 %%% =============================================================================
 %%% Callback definitions.
 %%% =============================================================================
 
 %%
+%%  This callback should return services, provided by this adapter.
 %%
-%%
--callback handle_describe(
-        NodeName    :: term(),
-        What        :: start_spec | sup_spec | meta
+-callback provided_services(
+        Args :: term()
     ) ->
-        {ok, Info :: term()}.
+        {ok, [{ServiceName :: term(), ServiceModule :: module()}]}.
 
-
-%%
-%%
-%%
--callback handle_mode_change(
-        NodeName        :: atom(),
-        AdapterModule   :: module(),
-        Services        :: [Service :: atom()] | all,
-        Mode            :: online | offline,
-        Direction       :: internal | external | all
-    ) ->
-        ok.
+% % % %%
+% % % %%
+% % % %%
+% % % -callback handle_describe(
+% % %         NodeName    :: term(),
+% % %         What        :: start_spec | sup_spec | meta
+% % %     ) ->
+% % %         {ok, Info :: term()}.
+% % %
+% % %
+% % % %%
+% % % %%
+% % % %%
+% % % -callback handle_mode_change(
+% % %         NodeName        :: atom(),
+% % %         AdapterModule   :: module(),
+% % %         Services        :: [Service :: atom()] | all,
+% % %         Mode            :: online | offline,
+% % %         Direction       :: internal | external | all
+% % %     ) ->
+% % %         ok.
 
 %%% =============================================================================
 %%% Public API.
 %%% =============================================================================
 
 %%
-%%  Register an adapter to the specific node.
-%%  The calling process will be linked with the node
-%%  and will represent the adapter (termination will
-%%  cause unregistering of the adapter).
+%%  Start the adapter.
 %%
-%%  No options are currently supported.
-%%
--spec register(
-        NodeName        :: atom(),
-        AdapterModule   :: module(),
-        Opts            :: list()
-    ) ->
-        ok |
-        {error, Reason :: term()}.
-
-register(NodeName, AdapterModule, Opts) ->
-    axb_node:register_adapter(NodeName, AdapterModule, Opts).
+start_link(NodeName, Module, Args, Opts) ->
+    gen_server:start_link(?REF(NodeName, Module), ?MODULE, {NodeName, Module, Args}, Opts).
 
 
 %%
@@ -96,5 +96,77 @@ register(NodeName, AdapterModule, Opts) ->
 
 set_mode(NodeName, AdapterModule, Services, Mode, Direction) ->
     ok.
+
+
+%%% =============================================================================
+%%% Internal state.
+%%% =============================================================================
+
+-record(service, {
+    name    :: term(),
+    module  :: module(),
+    online  :: none | external | internal | both
+}).
+-record(state, {
+    node        :: atom(),
+    module      :: module(),
+    args        :: term(),
+    services    :: [#service{}]
+}).
+
+
+%%% =============================================================================
+%%% Callbacks for `gen_server`.
+%%% =============================================================================
+
+%%
+%%
+%%
+init({NodeName, Module, Args}) ->
+    case Module:provided_services(Args) of
+        {ok, Services} ->
+            State = #state{
+                node     = NodeName,
+                module   = Module,
+                args     = Args,
+                services = [ #service{name = N, module = M, online = none} || {N, M} <- Services ]
+            },
+            ok = axb_node:register_adapter(NodeName, Module, []),
+            {ok, State}
+    end.
+
+
+%%
+%%
+%%
+handle_call(_Message, _From, State) ->
+    {reply, undefined, State}.
+
+
+%%
+%%
+%%
+handle_cast(Message, State) ->
+    {noreply, State}.
+
+
+%%
+%%
+%%
+handle_info(Message, State) ->
+    {noreply, State}.
+
+
+%%
+%%
+%%
+terminate(_Reason, _State) ->
+    ok.
+
+%%
+%%
+%%
+code_change(OldVsn, State, Extra) ->
+    {ok, State}.
 
 

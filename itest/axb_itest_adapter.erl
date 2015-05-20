@@ -20,7 +20,8 @@
 %%%
 -module(axb_itest_adapter).
 -behaviour(axb_adapter).
--export([register/0]).
+-export([start_link/1]).
+-export([provided_services/1]).
 
 
 %%% =============================================================================
@@ -30,13 +31,19 @@
 %%
 %%
 %%
-register() ->
-    axb_adapter:register(axb_itest_node:name(), ?MODULE, []).
+start_link(Mode) ->
+    axb_adapter:start_link(axb_itest_node:name(), ?MODULE, Mode, []).
 
 
 
 %%% =============================================================================
 %%% Callbacks for `axb_adapter`.
 %%% =============================================================================
+
+%%
+%%  Returns a list of services, provided by this adapter.
+%%
+provided_services(empty) ->
+    {ok, []}.
 
 

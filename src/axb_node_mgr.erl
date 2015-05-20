@@ -109,8 +109,13 @@ handle_call({register_node, NodeName, NodePid, _Opts}, _From, State = #state{nod
                 name = NodeName,
                 pid  = NodePid
             },
+            lager:info("Node ~p registered, pid=~p", [NodeName, NodePid]),
             {reply, ok, State#state{nodes = [Node | Nodes]}};
-        #node{} ->
+        #node{pid = NodePid} ->
+            lager:warning("Node ~p already registered with the same pid=~p", [NodeName, NodePid]),
+            {reply, ok, State};
+        #node{pid = OldPid} ->
+            lager:warning("Node ~p already registered, newPid=~p, oldPid=~p", [NodeName, NodePid, OldPid]),
             Reason = {node_already_registered, NodeName, NodePid},
             {reply, {error, Reason}, State}
     end;
@@ -118,9 +123,11 @@ handle_call({register_node, NodeName, NodePid, _Opts}, _From, State = #state{nod
 handle_call({unregister_node, NodeName}, _From, State = #state{nodes = Nodes}) ->
     NewNodes = case lists:keytake(NodeName, #node.name, Nodes) of
         false ->
+            lager:warning("Node ~p is unknown, unable to unregister it.", [NodeName]),
             Nodes;
         {value, #node{pid = NodePid}, OtherNodes} ->
             true = erlang:unlink(NodePid),
+            lager:info("Node ~p unregistered by request, pid=~p", [NodeName, NodePid]),
             OtherNodes
     end,
     {reply, ok, State#state{nodes = NewNodes}};
@@ -140,12 +147,14 @@ handle_cast(_Request, State) ->
 %%
 %%
 %%
-handle_info({'EXIT', From, _Reason}, State = #state{nodes = Nodes}) ->
-    NewNodes = case lists:keytake(From, #node.pid, Nodes) of
-        false -> Nodes;
-        {value, _Node, OtherNodes} -> OtherNodes
-    end,
-    {noreply, State#state{nodes = NewNodes}};
+handle_info({'EXIT', From, Reason}, State = #state{nodes = Nodes}) ->
+    case lists:keytake(From, #node.pid, Nodes) of
+        false ->
+            {stop, Reason, State};
+        {value, #node{name = NodeName}, OtherNodes} ->
+            lager:warning("Node ~p unregistered, because it died, pid=~p, reason=~p.", [NodeName, From, Reason]),
+            {noreply, State#state{nodes = OtherNodes}}
+    end;
 
 handle_info(_Request, State) ->
     {noreply, State}.

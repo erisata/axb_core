@@ -17,9 +17,11 @@
 %%%
 %%% Adapter supervisor for tests.
 %%%
+%%% TODO: Implement using axb_supervisor.
+%%%
 -module(axb_itest_adapter_sup).
 -behaviour(supervisor).
--export([start_link/0]).
+-export([start_link/1]).
 -export([init/1]).
 
 
@@ -30,8 +32,8 @@
 %%
 %%
 %%
-start_link() ->
-    supervisor:start_link(?MODULE, {}).
+start_link(Mode) ->
+    supervisor:start_link(?MODULE, Mode).
 
 
 
@@ -42,8 +44,13 @@ start_link() ->
 %%
 %%
 %%
-init({}) ->
-    ok = axb_itest_adapter:register(),
-    {ok, {{one_for_all, 100, 10}, []}}.
+init(Mode) ->
+    {ok, {{one_for_all, 100, 10}, [
+        {axb_itest_adapter,
+            {axb_itest_adapter, start_link, [Mode]},
+            permanent, brutal_kill, worker,
+            [axb_adapter, axb_itest_adapter]
+        }
+    ]}}.
 
 

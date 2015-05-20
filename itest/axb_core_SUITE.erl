@@ -104,7 +104,7 @@ test_adapter_registration(_Config) ->
     {ok, [{axb_itest_adapter, down}]} = axb_node:info(Node, adapters),
     %
     % Start the adapter, the node should be ready now.
-    {ok, AdapterPid} = axb_itest_adapter_sup:start_link(),
+    {ok, AdapterPid} = axb_itest_adapter:start_link(empty),
     timer:sleep(50),
     true = have_node(Node),
     true = erlang:is_process_alive(NodePid),
@@ -118,7 +118,7 @@ test_adapter_registration(_Config) ->
     {ok, [{axb_itest_adapter, down}]} = axb_node:info(Node, adapters),
     %
     % Restart adapter, it should reregister itself.
-    {ok, AdapterPid2} = axb_itest_adapter_sup:start_link(),
+    {ok, AdapterPid2} = axb_itest_adapter:start_link(empty),
     timer:sleep(50),
     true = have_node(Node),
     true = erlang:is_process_alive(NodePid),
@@ -137,8 +137,20 @@ test_adapter_registration(_Config) ->
     true = have_node(Node),
     true = erlang:is_process_alive(NodePid),
     {ok, []} = axb_node:info(Node, adapters),
+    %
     % Cleanup.
     ok = unlink_kill(NodePid),
     ok.
+
+
+%%
+%%  TODO: Test adapter services.
+%%
+
+
+%%
+%%  TODO: Check if flow supervisor can be registered to the node, and
+%%  if the node waits for them.
+%%
 
 

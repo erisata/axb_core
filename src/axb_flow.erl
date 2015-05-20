@@ -22,6 +22,7 @@
 %%%
 -module(axb_flow).
 -behaviour(gen_fsm).
+-compile([{parse_transform, lager_transform}]).
 -export([describe/3, default/4, start_sup/4, start_link/4, respond/1, respond/2, wait_response/2]).
 -export([flow_id/0, route_id/0, client_ref/0, related_id/2]).
 -export([init/1, handle_event/3, handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).

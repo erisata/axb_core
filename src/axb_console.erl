@@ -19,5 +19,6 @@
 %%% Functions in this module are invoked from the shell script.
 %%%
 -module(axb_console).
+-compile([{parse_transform, lager_transform}]).
 
 
