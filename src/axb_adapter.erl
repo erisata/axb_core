@@ -25,6 +25,8 @@
 %%%
 %%% This behaviour is implemented not using a dedicated process,
 %%% in order to avoid bootleneck when processing adapter commands.
+%%% This also allows to have any structure for the particular adapter,
+%%% in terms of processes and supervision tree.
 %%%
 -module(axb_adapter).
 -export([register/3, set_mode/5]).

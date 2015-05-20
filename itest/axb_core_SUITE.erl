@@ -76,13 +76,17 @@ unlink_kill(Pid) ->
 %%  Check is node registration / unregistration works.
 %%
 test_node_registration(_Config) ->
-    false = have_node(axb_itest_node:name()),
+    Node = axb_itest_node:name(),
+    false = have_node(Node),
+    % Start the node.
     {ok, Pid} = axb_itest_node:start_link(empty),
     timer:sleep(50),
-    true = have_node(axb_itest_node:name()),
+    true = have_node(Node),
+    {ok, []} = axb_node:info(Node, adapters),
     ok = unlink_kill(Pid),
+    % Terminate the node, it should be unregistered.
     timer:sleep(50),
-    false = have_node(axb_itest_node:name()),
+    false = have_node(Node),
     ok.
 
 
@@ -91,18 +95,50 @@ test_node_registration(_Config) ->
 %%  if the node waits for adapters.
 %%
 test_adapter_registration(_Config) ->
+    Node = axb_itest_node:name(),
+    %
     % Start the node, it should wait for the adapter.
     {ok, NodePid} = axb_itest_node:start_link(adapter),
     timer:sleep(50),
-    false = have_node(axb_itest_node:name()),
+    false = have_node(Node),
+    {ok, [{axb_itest_adapter, down}]} = axb_node:info(Node, adapters),
+    %
     % Start the adapter, the node should be ready now.
     {ok, AdapterPid} = axb_itest_adapter_sup:start_link(),
     timer:sleep(50),
-    true = have_node(axb_itest_node:name()),
+    true = have_node(Node),
     true = erlang:is_process_alive(NodePid),
+    {ok, [{axb_itest_adapter, running}]} = axb_node:info(Node, adapters),
+    %
+    % Kill the adapter, it should left registered.
+    ok = unlink_kill(AdapterPid),
+    timer:sleep(50),
+    true = have_node(Node),
+    true = erlang:is_process_alive(NodePid),
+    {ok, [{axb_itest_adapter, down}]} = axb_node:info(Node, adapters),
+    %
+    % Restart adapter, it should reregister itself.
+    {ok, AdapterPid2} = axb_itest_adapter_sup:start_link(),
+    timer:sleep(50),
+    true = have_node(Node),
+    true = erlang:is_process_alive(NodePid),
+    {ok, [{axb_itest_adapter, running}]} = axb_node:info(Node, adapters),
+    %
+    % Unregister adapter explicitly, node should be running as the adapter unregistered.
+    ok = axb_node:unregister_adapter(Node, axb_itest_adapter),
+    timer:sleep(50),
+    true = have_node(Node),
+    true = erlang:is_process_alive(NodePid),
+    {ok, []} = axb_node:info(Node, adapters),
+    %
+    % Check if killing of the unregistered adapter does not affect the node.
+    ok = unlink_kill(AdapterPid2),
+    timer:sleep(50),
+    true = have_node(Node),
+    true = erlang:is_process_alive(NodePid),
+    {ok, []} = axb_node:info(Node, adapters),
     % Cleanup.
     ok = unlink_kill(NodePid),
-    ok = unlink_kill(AdapterPid),
     ok.
 
 
