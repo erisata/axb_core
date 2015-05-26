@@ -60,19 +60,25 @@ name() ->
 %%
 init(empty) ->
     AdaptersToWait = [],
-    FlowSupsToWait = [],
-    {ok, AdaptersToWait, FlowSupsToWait};
+    FlowMgrsToWait = [],
+    {ok, AdaptersToWait, FlowMgrsToWait};
 
 init(adapter) ->
     AdaptersToWait = [axb_itest_adapter],
-    FlowSupsToWait = [],
-    {ok, AdaptersToWait, FlowSupsToWait}.
+    FlowMgrsToWait = [],
+    {ok, AdaptersToWait, FlowMgrsToWait};
+
+init(flow_mgr) ->
+    AdaptersToWait = [],
+    FlowMgrsToWait = [axb_itest_flows],
+    {ok, AdaptersToWait, FlowMgrsToWait}.
+
 
 
 %%
 %%  Handle code upgrades.
 %%
-code_change(OldVsn, Extra) ->
+code_change(_OldVsn, _Extra) ->
     ok.
 
 

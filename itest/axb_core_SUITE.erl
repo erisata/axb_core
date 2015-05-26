@@ -23,7 +23,9 @@
 -export([
     test_node_registration/1,
     test_adapter_registration/1,
-    test_adapter_services/1
+    test_adapter_services/1,
+    test_flow_mgr_registration/1,
+    test_flow_pool/1
 ]).
 -include_lib("common_test/include/ct.hrl").
 -include_lib("axb_core/include/axb.hrl").
@@ -35,7 +37,9 @@ all() ->
     [
         test_node_registration,
         test_adapter_registration,
-        test_adapter_services
+        test_adapter_services,
+        test_flow_mgr_registration,
+        test_flow_pool
     ].
 
 
@@ -79,6 +83,7 @@ unlink_kill(Pid) ->
 %%  Check is node registration / unregistration works.
 %%
 test_node_registration(_Config) ->
+    lager:debug("Testcase test_node_registration - start"),
     Node = axb_itest_node:name(),
     false = have_node(Node),
     % Start the node.
@@ -98,6 +103,7 @@ test_node_registration(_Config) ->
 %%  if the node waits for adapters.
 %%
 test_adapter_registration(_Config) ->
+    lager:debug("Testcase test_adapter_registration - start"),
     Node = axb_itest_node:name(),
     %
     % Start the node, it should wait for the adapter.
@@ -150,6 +156,7 @@ test_adapter_registration(_Config) ->
 %%  Test adapter services.
 %%
 test_adapter_services(_Config) ->
+    lager:debug("Testcase test_adapter_services - start"),
     Node = axb_itest_node:name(),
     %
     % Start the node, it should wait for the adapter.
@@ -163,7 +170,7 @@ test_adapter_services(_Config) ->
     {ok, a1} = axb_itest_adapter:send_message(a1),
     {ok, a2} = axb_itest_adapter:message_received(a2),
     %
-    % Dirable services.
+    % Disable services.
     ok = axb_node:adapter_service_online(Node, axb_itest_adapter, main, all, false),
     {ok, [{axb_itest_adapter, [{main, false, false}]}]} = axb_node:info(Node, services),
     {error, service_offline} = axb_itest_adapter:send_message(a1),
@@ -188,8 +195,73 @@ test_adapter_services(_Config) ->
 
 
 %%
-%%  TODO: Check if flow supervisor can be registered to the node, and
-%%  if the node waits for them.
+%%  Check if flow manager (flow pool, in this case) can be registered
+%%  to the node, and if the node waits for it.
 %%
+test_flow_mgr_registration(_Config) ->
+    lager:debug("Testcase test_flow_mgr_registration - start"),
+    Node = axb_itest_node:name(),
+    %
+    % Start the node, it should wait for the flow manager.
+    {ok, NodePid} = axb_itest_node:start_link(flow_mgr),
+    timer:sleep(50),
+    false = have_node(Node),
+    {ok, [{axb_itest_flows, down}]} = axb_node:info(Node, flow_mgrs),
+    %
+    % Start the flow manager, the node should be ready now.
+    {ok, FlowMgrPid} = axb_itest_flows:start_link(empty),
+    timer:sleep(50),
+    true = have_node(Node),
+    true = erlang:is_process_alive(NodePid),
+    {ok, [{axb_itest_flows, running}]} = axb_node:info(Node, flow_mgrs),
+    %
+    % Kill the flow manager, it should left registered.
+    ok = unlink_kill(FlowMgrPid),
+    timer:sleep(50),
+    true = have_node(Node),
+    true = erlang:is_process_alive(NodePid),
+    {ok, [{axb_itest_flows, down}]} = axb_node:info(Node, flow_mgrs),
+    %
+    % Restart the flow manager, it should reregister itself.
+    {ok, FlowMgrPid2} = axb_itest_flows:start_link(empty),
+    timer:sleep(50),
+    true = have_node(Node),
+    true = erlang:is_process_alive(NodePid),
+    {ok, [{axb_itest_flows, running}]} = axb_node:info(Node, flow_mgrs),
+    %
+    % Unregister the flow manager explicitly, node should be running as the flow manager unregistered.
+    ok = axb_node:unregister_flow_mgr(Node, axb_itest_flows),
+    timer:sleep(50),
+    true = have_node(Node),
+    true = erlang:is_process_alive(NodePid),
+    {ok, []} = axb_node:info(Node, flow_mgrs),
+    %
+    % Check if killing of the unregistered flow manager does not affect the node.
+    ok = unlink_kill(FlowMgrPid2),
+    timer:sleep(50),
+    true = have_node(Node),
+    true = erlang:is_process_alive(NodePid),
+    {ok, []} = axb_node:info(Node, flow_mgrs),
+    %
+    % Cleanup.
+    ok = unlink_kill(NodePid),
+    ok.
+
+
+%%
+%%  Check, if flow pool (implementation of the axb_flow_mgr) maintains flows properly.
+%%
+test_flow_pool(_Config) ->
+    lager:debug("Testcase test_flow_pool - start"),
+    Node = axb_itest_node:name(),
+    %
+    % Start the node and the manager, it should wait for the flow manager.
+    {ok, NodePid} = axb_itest_node:start_link(flow_mgr),
+    {ok, FlowMgrPid} = axb_itest_flows:start_link(single),
+    timer:sleep(500),
+    true = have_node(Node),
+    true = erlang:is_process_alive(NodePid),
+    {ok, [{axb_itest_flows, running}]} = axb_node:info(Node, flow_mgrs),
+    ok.
 
 

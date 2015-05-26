@@ -19,68 +19,72 @@
 %%%
 -module(axb_flow_sup_sofo).
 -compile([{parse_transform, lager_transform}]).
-% -behaviour(axb_flow_sup).
-% -behaviour(supervisor).
-% -export([start_spec/2, start_link/2]).
-% -export([start_flow/4, register_flow/2, unregister_flow/2]).
-% -export([init/1]).
-%
-% -define(REF(NodeName, FlowModule), {via, gproc, {n, l, {?MODULE, NodeName, FlowModule}}}).
-%
-%
-% %% =============================================================================
-% %% API functions.
-% %% =============================================================================
-%
-% %%
-% %%
-% %%
-% start_spec(SpecId, FlowModule, FlowArgs) ->
-%     {SpecId,
-%         {?MODULE, start_link, [NodeName, FlowModule]},
-%         permanent, brutal_kill, supervisor,
-%         [Module, ?MODULE]
-%     }.
-%
-%
-% %%
-% %%  Start this supervisor.
-% %%
-% start_link(NodeName, FlowModule) ->
-%     supervisor:start_link(?REF(NodeName, FlowModule), ?MODULE, {NodeName, FlowModule}).
-%
-%
-% %%
-% %%  Start new flow under this supervisor.
-% %%
-% start_flow(NodeName, FlowModule, Args, Opts) ->
-%     supervisor:start_child(?REF(NodeName, FlowModule), [Args, Opts]).
-%
-%
-% %%
-% %%
-% %%
-% register_flow(_NodeName, _FlowModule) ->
-%     ok.
-%
-%
-% %%
-% %%
-% %%
-% unregister_flow(_NodeName, _FlowModule) ->
-%     ok.
-%
-%
-%
-% %% =============================================================================
-% %% Callbacks for supervisor.
-% %% =============================================================================
-%
-% %%
-% %%  Supervisor initialization.
-% %%
-% init({NodeName, FlowModule}) ->
-%     {ok, ChildSpec} = axb_flow:describe(NodeName, FlowModule, start_spec),
-%     {ok, {{simple_one_for_one, 100, 1000}, [ChildSpec]}}.
-%
-%
+-behaviour(supervisor).
+-export([sup_start_spec/4, start_link/4, start_flow/5]).
+-export([init/1]).
+
+-define(REF(NodeName, FlowMgrModule, FlowModule), {via, gproc, {n, l, {?MODULE, NodeName, FlowMgrModule, FlowModule}}}).
+
+
+%%% ============================================================================
+%%% API functions.
+%%% ============================================================================
+
+%%
+%%  `Opts`
+%%  :   Supervisor options, one of the following:
+%%
+%%      `spec`
+%%      :   ...
+%%      `mfa`
+%%      :   ...
+%%      `modules`
+%%      :   ...
+%%
+sup_start_spec(NodeName, FlowMgrModule, FlowModule, Opts) ->
+    Spec = {
+        FlowModule,
+        {?MODULE, start_link, [NodeName, FlowMgrModule, FlowModule, Opts]},
+        permanent, brutal_kill, supervisor, [?MODULE, FlowModule]
+    },
+    {ok, Spec}.
+
+
+%%
+%%
+%%
+start_link(NodeName, FlowMgrModule, FlowModule, Opts) ->
+    Args = {NodeName, FlowMgrModule, FlowModule, Opts},
+    supervisor:start_link(?REF(NodeName, FlowMgrModule, FlowModule), ?MODULE, Args).
+
+
+%%
+%%  Start new flow process in this supervisor.
+%%
+start_flow(NodeName, FlowMgrModule, FlowModule, FlowArgs, FlowOpts) ->
+    supervisor:start_child(?REF(NodeName, FlowMgrModule, FlowModule), [FlowArgs, FlowOpts]).
+
+
+
+%%% ============================================================================
+%%% Callbacks for supervisor.
+%%% ============================================================================
+
+%%
+%%  Supervisor initialization.
+%%
+init({NodeName, FlowMgrModule, FlowModule, Opts}) ->
+    DefaultMFA = {axb_flow, start_link, [NodeName, FlowMgrModule, FlowModule]},
+    DefaultMods = [axb_flow, FlowMgrModule],
+    FlowMFA = proplists:get_value(mfa, Opts, DefaultMFA),
+    FlowMods = proplists:get_value(modules, Opts, DefaultMods),
+    DefaultSpec = {FlowModule, FlowMFA, transient, brutal_kill, worker, FlowMods},
+    ChildSpec = proplists:get_value(spec, Opts, DefaultSpec),
+    lager:debug(
+        "Starting flow supervisor for node=~p, flow_mgr=~p, flow=~p with child_spec=~p",
+        [NodeName, FlowMgrModule, FlowMgrModule, ChildSpec]
+    ),
+    ok = axb_flow_pool_mgr:register_flow(NodeName, FlowMgrModule, FlowModule),
+    {ok, {{simple_one_for_one, 100, 1000}, [ChildSpec]}}.
+
+

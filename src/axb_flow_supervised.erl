@@ -15,39 +15,37 @@
 %\--------------------------------------------------------------------
 
 %%%
-%%% Main supervisor.
+%%% Behaviour for flows, that have its own supervisor.
+%%% Used by the `axb_flow_pool`.
 %%%
--module(axb_core_sup).
--behaviour(supervisor).
+-module(axb_flow_supervised).
 -compile([{parse_transform, lager_transform}]).
--export([start_link/0]).
--export([init/1]).
+-export([sup_start_spec/2]).
+
+
+%%% ============================================================================
+%%% Callback definitions.
+%%% ============================================================================
+
+%%
+%%  This callback should return a supervisor's child spec for the flow supervisor.
+%%
+-callback sup_start_spec(
+        Args :: term()
+    ) ->
+        {ok, supervisor:child_spec()} |
+        {error, Reason :: term()}.
+
 
 
 %%% ============================================================================
 %%% API functions.
 %%% ============================================================================
 
-
 %%
-%%  Create this supervisor.
+%%  Invokes `sup_start_spec/1` callback.
 %%
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, {}).
-
-
-
-%%% ============================================================================
-%%% Callbacks for supervisor.
-%%% ============================================================================
-
-
-%%
-%%  Supervisor initialization.
-%%
-init({}) ->
-    {ok, {{one_for_all, 100, 10}, [
-        axb_node_mgr:start_spec()
-    ]}}.
+sup_start_spec(Module, Args) ->
+    Module:sup_start_spec(Args).
 
 

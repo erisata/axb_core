@@ -15,25 +15,52 @@
 %\--------------------------------------------------------------------
 
 %%%
-%%% Main supervisor.
+%%% Supervisor for all flow supervisors in the `axb_flow_pool`.
 %%%
--module(axb_core_sup).
--behaviour(supervisor).
+-module(axb_flow_pool_sup).
 -compile([{parse_transform, lager_transform}]).
--export([start_link/0]).
+-behaviour(supervisor).
+-export([start_link/2]).
+-export([add_flow_sup/4, remove_flow_sup/3]).
 -export([init/1]).
+
+-define(REF(NodeName, FlowMgrModule), {via, gproc, {n, l, {?MODULE, NodeName, FlowMgrModule}}}).
 
 
 %%% ============================================================================
 %%% API functions.
 %%% ============================================================================
 
+%%
+%%  Start this supervisor.
+%%
+start_link(NodeName, FlowMgrModule) ->
+    supervisor:start_link(?REF(NodeName, FlowMgrModule), ?MODULE, {}).
+
 
 %%
-%%  Create this supervisor.
+%%  Add a supervisor for the specific flow.
 %%
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, {}).
+add_flow_sup(NodeName, FlowMgrModule, _FlowModule, SupStartSpec) ->
+    case supervisor:start_child(?REF(NodeName, FlowMgrModule), SupStartSpec) of
+        {ok, SupPid} ->
+            {ok, SupPid};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+
+%%
+%%  Remove a supervisor for the specific flow.
+%%
+remove_flow_sup(NodeName, FlowMgrModule, FlowModule) ->
+    case supervisor:terminate_child(?REF(NodeName, FlowMgrModule), FlowModule) of
+        ok ->
+            ok = supervisor:delete_child(?REF(NodeName, FlowMgrModule), FlowModule),
+            ok;
+        {error, not_found} ->
+            {error, not_found}
+    end.
 
 
 
@@ -41,13 +68,10 @@ start_link() ->
 %%% Callbacks for supervisor.
 %%% ============================================================================
 
-
 %%
 %%  Supervisor initialization.
 %%
 init({}) ->
-    {ok, {{one_for_all, 100, 10}, [
-        axb_node_mgr:start_spec()
-    ]}}.
+    {ok, {{one_for_one, 100, 1000}, []}}.
 
 

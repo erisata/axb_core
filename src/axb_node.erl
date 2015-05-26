@@ -20,11 +20,11 @@
 %%%
 %%%   * Start node.
 %%%   * Start adapters / internal services.
-%%%   * Start flow supervisor / flows (in offline mode?).
+%%%   * Start flow manager / flows (in offline mode?).
 %%%   * Start adapters / external services.
-%%%   * (Take flows to the online mode?).
-%%%   * Start processes.
-%%%   * Register to the cluster. (Start the clustering? Maybe it is not the node's responsibility?)
+%%%   * TODO: (Take flows to the online mode?).
+%%%   * TODO: Start singleton processes.
+%%%   * TODO: Register to the cluster. (Start the clustering? Maybe it is not the node's responsibility?)
 %%%
 %%% We can start the clustering so late, because it makes this node to
 %%% work as a backend node. The current node can use clusteres services
@@ -38,9 +38,9 @@
     start_link/4,
     info/2,
     register_adapter/3,
-    register_flow_sup/3,
+    register_flow_mgr/3,
     unregister_adapter/2,
-    unregister_flow_sup/2,
+    unregister_flow_mgr/2,
     adapter_service_online/5
 ]).
 -export([init/1, handle_sync_event/4, handle_event/3, handle_info/3, terminate/3, code_change/4]).
@@ -55,15 +55,24 @@
 %%% =============================================================================
 
 %%
+%%  This callback is invoked when starting the node.
+%%  It must return a list of adapters and flow managers to wait
+%%  before condidering node as started.
 %%
-%%
--callback init(Args :: term()) -> {ok, [AdapterToWait :: module()], [FlowSupToWait :: term()]}.
+-callback init(
+        Args :: term()
+    ) ->
+        {ok, [AdapterToWait :: module()], [FlowMgrToWait :: term()]}.
 
 
 %%
+%%  This callback is invoked on code upgrades.
 %%
-%%
--callback code_change(OldVsn :: term(), Extra :: term()) -> ok.
+-callback code_change(
+        OldVsn :: term(),
+        Extra :: term()
+    ) ->
+        ok.
 
 
 
@@ -96,7 +105,7 @@ start_link(NodeName, Module, Args, Opts) ->
 %%
 -spec info(
         NodeName :: atom(),
-        What     :: all | adapters | flow_sups
+        What     :: all | adapters | flow_mgrs
     ) ->
         {ok, Info :: term()}.
 
@@ -113,11 +122,11 @@ register_adapter(NodeName, AdapterModule, _Opts) ->
 
 
 %%
-%%  Register a flow supervisor to this node.
+%%  Register a flow manager to this node.
 %%
-register_flow_sup(NodeName, FlowSupModule, _Opts) ->
-    FlowSupPid = self(),
-    gen_fsm:sync_send_all_state_event(?REF(NodeName), {register_flow_sup, FlowSupModule, FlowSupPid}).
+register_flow_mgr(NodeName, FlowMgrModule, _Opts) ->
+    FlowMgrPid = self(),
+    gen_fsm:sync_send_all_state_event(?REF(NodeName), {register_flow_mgr, FlowMgrModule, FlowMgrPid}).
 
 
 %%
@@ -130,8 +139,8 @@ unregister_adapter(NodeName, AdapterModule) ->
 %%
 %%  Unregister an adapter from this node.
 %%
-unregister_flow_sup(NodeName, FlowSupName) ->
-    gen_fsm:sync_send_all_state_event(?REF(NodeName), {unregister_flow_sup, FlowSupName}).
+unregister_flow_mgr(NodeName, FlowMgrName) ->
+    gen_fsm:sync_send_all_state_event(?REF(NodeName), {unregister_flow_mgr, FlowMgrName}).
 
 
 %%
@@ -155,8 +164,8 @@ adapter_service_online(NodeName, Module, ServiceNames, Direction, Online) ->
 %%% Internal state.
 %%% =============================================================================
 
--record(flow_sup, {
-    name,
+-record(flow_mgr, {
+    mod,
     pid
 }).
 
@@ -168,7 +177,7 @@ adapter_service_online(NodeName, Module, ServiceNames, Direction, Online) ->
 -record(state, {
     name        :: atom(),
     mod         :: module(),
-    flow_sups   :: [#flow_sup{}],
+    flow_mgrs   :: [#flow_mgr{}],
     adapters    :: [#adapter{}]
 }).
 
@@ -184,11 +193,11 @@ adapter_service_online(NodeName, Module, ServiceNames, Direction, Online) ->
 init({NodeName, Module, Args}) ->
     erlang:process_flag(trap_exit, true),
     case Module:init(Args) of
-        {ok, AdaptersToWait, FlowSupsToWait} ->
+        {ok, AdaptersToWait, FlowMgrsToWait} ->
             StateData = #state{
                 name = NodeName,
                 mod = Module,
-                flow_sups = [ #flow_sup{name = F} || F <- FlowSupsToWait ],
+                flow_mgrs = [ #flow_mgr{mod = F} || F <- FlowMgrsToWait ],
                 adapters  = [ #adapter {mod = A} || A <- AdaptersToWait ]
             },
             case have_all_deps(StateData) of
@@ -205,10 +214,10 @@ init({NodeName, Module, Args}) ->
 %%
 %%  The `waiting` state.
 %%
-waiting(timeout, StateData = #state{adapters = Adapters, flow_sups = FlowSups}) ->
-    MissingAdapters = [ M || #adapter{mod = M, pid = undefined} <- Adapters ],
-    MissingFlowSups = [ N || #flow_sup{name = N, pid = undefined} <- FlowSups ],
-    lager:info("Still waiting for adapters ~p and flow supervisors ~p", [MissingAdapters, MissingFlowSups]),
+waiting(timeout, StateData = #state{adapters = Adapters, flow_mgrs = FlowMgrs}) ->
+    MissingAdapters = [ M || #adapter{mod = M,  pid = undefined} <- Adapters ],
+    MissingFlowMgrs = [ N || #flow_mgr{mod = N, pid = undefined} <- FlowMgrs ],
+    lager:info("Still waiting for adapters ~p and flow managers ~p", [MissingAdapters, MissingFlowMgrs]),
     {next_state, waiting, StateData, ?WAIT_INFO_DELAY}.
 
 
@@ -227,9 +236,12 @@ starting_internal(timeout, StateData = #state{name = NodeName, adapters = Adapte
 %%
 %%  The `starting_flows` state.
 %%
-starting_flows(timeout, StateData = #state{name = NodeName}) ->
-    lager:debug("Node ~p is starting flow supervisors.", [NodeName]),
-    % TODO: Implement
+starting_flows(timeout, StateData = #state{name = NodeName, flow_mgrs = FlowMgrs}) ->
+    lager:debug("Node ~p is starting flow managers.", [NodeName]),
+    StartFlowMgrs = fun (#flow_mgr{mod = FlowMgrModule}) ->
+        ok = axb_flow_mgr:flows_online(NodeName, FlowMgrModule, all, true)
+    end,
+    ok = lists:foreach(StartFlowMgrs, FlowMgrs),
     {next_state, starting_external, StateData, 0}.
 
 
@@ -284,12 +296,12 @@ handle_sync_event({register_adapter, Module, Pid}, _From, StateName, StateData) 
             {reply, {error, already_registered}, StateName, StateData}
     end;
 
-handle_sync_event({register_flow_sup, Name, Pid}, _From, StateName, StateData) ->
-    #state{flow_sups = FlowSups} = StateData,
-    NewFlowSup = #flow_sup{name = Name, pid = Pid},
-    Register = fun (NewFlowSups) ->
+handle_sync_event({register_flow_mgr, Module, Pid}, _From, StateName, StateData) ->
+    #state{flow_mgrs = FlowMgrs} = StateData,
+    NewFlowMgr = #flow_mgr{mod = Module, pid = Pid},
+    Register = fun (NewFlowMgrs) ->
         true = erlang:link(Pid),
-        NewStateData = StateData#state{flow_sups = NewFlowSups},
+        NewStateData = StateData#state{flow_mgrs = NewFlowMgrs},
         case StateName of
             waiting ->
                 case have_all_deps(NewStateData) of
@@ -300,15 +312,15 @@ handle_sync_event({register_flow_sup, Name, Pid}, _From, StateName, StateData) -
                 {reply, ok, StateName, NewStateData}
         end
     end,
-    case lists:keyfind(Name, #flow_sup.name, FlowSups) of
+    case lists:keyfind(Module, #flow_mgr.mod, FlowMgrs) of
         false ->
-            Register([NewFlowSup | FlowSups]);
-        NewFlowSup ->
-            {reply, ok, waiting, StateData, ?WAIT_INFO_DELAY};
-        #flow_sup{pid = undefined} ->
-            Register(lists:keyreplace(Name, #flow_sup.name, FlowSups, NewFlowSup));
-        #flow_sup{} ->
-            {reply, {error, already_registered}, waiting, StateData, ?WAIT_INFO_DELAY}
+            Register([NewFlowMgr | FlowMgrs]);
+        NewFlowMgr ->
+            {reply, ok, StateName, StateData, ?WAIT_INFO_DELAY};
+        #flow_mgr{pid = undefined} ->
+            Register(lists:keyreplace(Module, #flow_mgr.mod, FlowMgrs, NewFlowMgr));
+        #flow_mgr{} ->
+            {reply, {error, already_registered}, StateName, StateData, ?WAIT_INFO_DELAY}
     end;
 
 handle_sync_event({unregister_adapter, Module}, _From, StateName, StateData) ->
@@ -324,16 +336,16 @@ handle_sync_event({unregister_adapter, Module}, _From, StateName, StateData) ->
             {reply, ok, StateName, NewStateData}
     end;
 
-handle_sync_event({unregister_flow_sup, Name}, _From, StateName, StateData) ->
-    #state{flow_sups = FlowSups} = StateData,
-    case lists:keytake(Name, #flow_sup.name, FlowSups) of
+handle_sync_event({unregister_flow_mgr, Module}, _From, StateName, StateData) ->
+    #state{flow_mgrs = FlowMgrs} = StateData,
+    case lists:keytake(Module, #flow_mgr.mod, FlowMgrs) of
         false ->
-            lager:warning("Attempt to unregister unknown flow supervisor ~p.", [Name]),
+            lager:warning("Attempt to unregister unknown flow manager ~p.", [Module]),
             {reply, ok, StateName, StateData};
-        {value, #flow_sup{pid = Pid}, NewFlowSups} ->
-            lager:info("Unregistering flow supervisor ~p, pid=~p", [Name, Pid]),
+        {value, #flow_mgr{pid = Pid}, NewFlowMgrs} ->
+            lager:info("Unregistering flow manager ~p, pid=~p", [Module, Pid]),
             true = erlang:unlink(Pid),
-            NewStateData = StateData#state{flow_sups = NewFlowSups},
+            NewStateData = StateData#state{flow_mgrs = NewFlowMgrs},
             {reply, ok, StateName, NewStateData}
     end;
 
@@ -341,16 +353,16 @@ handle_sync_event({info, What}, _From, StateName, StateData) ->
     #state{
         name = NodeName,
         adapters = Adapters,
-        flow_sups = FlowSups
+        flow_mgrs = FlowMgrs
     } = StateData,
     Reply = case What of
         adapters ->
             {ok, [
                 {M, adapter_status(A)} || A = #adapter{mod = M} <- Adapters
             ]};
-        flow_sups ->
+        flow_mgrs ->
             {ok, [
-                {N, flow_sup_status(F)} || F = #flow_sup{name = N} <- FlowSups
+                {M, flow_mgr_status(F)} || F = #flow_mgr{mod = M} <- FlowMgrs
             ]};
         services ->
             AdapterServices = fun (#adapter{mod = AdapterModule}) ->
@@ -376,19 +388,19 @@ handle_event(_Request, StateName, StateData) ->
 handle_info({'EXIT', FromPid, Reason}, StateName, StateData) when is_pid(FromPid) ->
     #state{
         adapters  = Adapters,
-        flow_sups = FlowSups
+        flow_mgrs = FlowMgrs
     } = StateData,
     Adapter = lists:keyfind(FromPid, #adapter.pid, Adapters),
-    FlowSup = lists:keyfind(FromPid, #flow_sup.pid, FlowSups),
-    case {Adapter, FlowSup} of
-        {#adapter{mod = Mod}, false} ->
-            lager:warning("Adapter terminated, module=~p, pid=~p, reason=~p", [Mod, FromPid, Reason]),
-            NewAdapters = lists:keyreplace(Mod, #adapter.mod, Adapters, Adapter#adapter{pid = undefined}),
+    FlowMgr = lists:keyfind(FromPid, #flow_mgr.pid, FlowMgrs),
+    case {Adapter, FlowMgr} of
+        {#adapter{mod = Module}, false} ->
+            lager:warning("Adapter terminated, module=~p, pid=~p, reason=~p", [Module, FromPid, Reason]),
+            NewAdapters = lists:keyreplace(Module, #adapter.mod, Adapters, Adapter#adapter{pid = undefined}),
             {next_state, StateName, StateData#state{adapters = NewAdapters}};
-        {false, #flow_sup{name = Name}} ->
-            lager:warning("Flow supervisor terminated, name=~p, pid=~p, reason=~p", [Name, FromPid, Reason]),
-            NewFlowSups = lists:keyreplace(Name, #flow_sup.name, FlowSups, FlowSup#flow_sup{pid = undefined}),
-            {next_state, StateName, StateData#state{flow_sups = NewFlowSups}};
+        {false, #flow_mgr{mod = Module}} ->
+            lager:warning("Flow manager terminated, name=~p, pid=~p, reason=~p", [Module, FromPid, Reason]),
+            NewFlowMgrs = lists:keyreplace(Module, #flow_mgr.mod, FlowMgrs, FlowMgr#flow_mgr{pid = undefined}),
+            {next_state, StateName, StateData#state{flow_mgrs = NewFlowMgrs}};
         {false, false} ->
             lager:warning("Linked process ~p terminated, exiting with reason ~p.", [FromPid, Reason]),
             {stop, Reason, StateData}
@@ -419,15 +431,13 @@ code_change(OldVsn, StateName, StateData = #state{mod = Module}, Extra) ->
 %%% Helper functions.
 %%% ============================================================================
 
-
-
 %%
 %%  Check, if we have all deps registered.
 %%
-have_all_deps(#state{flow_sups = FlowSups, adapters = Adapters}) ->
-    FlowSupsMissing = lists:keymember(undefined, #flow_sup.pid, FlowSups),
+have_all_deps(#state{flow_mgrs = FlowMgrs, adapters = Adapters}) ->
+    FlowMgrsMissing = lists:keymember(undefined, #flow_mgr.pid, FlowMgrs),
     AdaptersMissing = lists:keymember(undefined, #adapter.pid,  Adapters),
-    not (FlowSupsMissing or AdaptersMissing).
+    not (FlowMgrsMissing or AdaptersMissing).
 
 
 %%
@@ -438,9 +448,9 @@ adapter_status(#adapter{pid = Pid}) when is_pid(Pid) -> running.
 
 
 %%
-%%  Determine flow_sup's status.
+%%  Determine flow_mgr's status.
 %%
-flow_sup_status(#flow_sup{pid = undefined})            -> down;
-flow_sup_status(#flow_sup{pid = Pid}) when is_pid(Pid) -> running.
+flow_mgr_status(#flow_mgr{pid = undefined})            -> down;
+flow_mgr_status(#flow_mgr{pid = Pid}) when is_pid(Pid) -> running.
 
 

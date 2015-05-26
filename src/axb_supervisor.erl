@@ -47,3 +47,28 @@
 %     ok.
 %
 %
+
+
+
+% %%
+% register_flow(NodeName, FlowModule) ->
+%     case axb_flow:describe(NodeName, FlowModule, sup_spec) of
+%         undefined ->
+%             ok;
+%         {ok, ChildSpec} ->
+%             {ok, _ChildPid} = supervisor:start_child(?REF(NodeName), ChildSpec),
+%             ok
+%     end.
+%
+%
+% %%
+% %%
+% %%
+% unregister_flow(NodeName, FlowModule) ->
+%     case supervisor:terminate_child(?REF(NodeName), FlowModule) of
+%         ok ->
+%             ok = supervisor:delete_child(?REF(NodeName), FlowModule),
+%             ok;
+%         {error, not_found} ->
+%             {error, not_found}
+%     end.
