@@ -20,9 +20,8 @@
 %%%
 %%%   * Start node.
 %%%   * Start adapters / internal services.
-%%%   * Start flow manager / flows (in offline mode?).
+%%%   * Start flow manager / flows in online mode.
 %%%   * Start adapters / external services.
-%%%   * TODO: (Take flows to the online mode?).
 %%%   * TODO: Start singleton processes.
 %%%   * TODO: Register to the cluster. (Start the clustering? Maybe it is not the node's responsibility?)
 %%%

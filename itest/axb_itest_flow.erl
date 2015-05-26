@@ -22,7 +22,7 @@
 -behaviour(axb_flow_supervised).
 -compile([{parse_transform, lager_transform}]).
 -export([perform/1]).
--export([handle_describe/2, init/1, handle_event/3, handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
+-export([init/1, handle_event/3, handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
 -export([transforming/2, saving/2, responding/2]).
 -export([sup_start_spec/1]).
 
@@ -40,6 +40,7 @@
 %%
 perform(Message) ->
     {ok, FlowId} = axb_flow_sup_sofo:start_flow(axb_itest_node:name(), axb_itest_flows, ?MODULE, {Message}, []),
+    lager:debug("Flow ~p started, flowId=~p", [?MODULE, FlowId]),
     axb_flow:wait_response(FlowId, 1000).
 
 
@@ -67,13 +68,6 @@ sup_start_spec(_Args) ->
 %%% ============================================================================
 %%% `axb_flow` callbacks.
 %%% ============================================================================
-
-%%
-%%  % TODO: Remove?
-%%
-handle_describe(NodeName, What) ->
-    axb_flow:default(NodeName, ?MODULE, What, []).
-
 
 %%
 %%

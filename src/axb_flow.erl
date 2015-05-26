@@ -23,7 +23,7 @@
 -module(axb_flow).
 -behaviour(gen_fsm).
 -compile([{parse_transform, lager_transform}]).
--export([describe/3, default/4, start_sup/4, start_link/4, respond/1, respond/2, wait_response/2]).
+-export([start_sup/2, start_link/5, respond/1, respond/2, wait_response/2]).
 -export([flow_id/0, route_id/0, client_ref/0, related_id/2]).
 -export([init/1, handle_event/3, handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
 -export([active/2, active/3]).
@@ -36,17 +36,13 @@
 -define(RESPONSE,    'axb_flow$response').
 
 
-%% =============================================================================
-%%  Callback definitions.
-%% =============================================================================
+%%% ============================================================================
+%%% Callback definitions.
+%%% ============================================================================
 
--callback handle_describe(
-        NodeName    :: term(),
-        What        :: start_spec | sup_spec | meta
-    ) ->
-        {ok, Info :: term()}.
-
-
+%%
+%%
+%%
 -callback init(
         Args :: term()
     ) ->
@@ -140,63 +136,28 @@
 
 
 
-%% =============================================================================
-%%  API functions.
-%% =============================================================================
-
-%%
-%%
-%%
-describe(NodeName, FlowModule, What) ->
-    case FlowModule:handle_describe(NodeName, What) of
-        {ok, Info} ->
-            {ok, Info};
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
-
-%%
-%%  Default describe implementation.
-%%
-default(NodeName, FlowModule, start_spec, Opts) ->
-    Restart = proplists:get_value(restart, Opts, temporary),
-    SpecId = {?MODULE, NodeName, FlowModule},
-    StartSpec = {?MODULE, start_link, [NodeName, FlowModule]},
-    ChildSpec = {SpecId, StartSpec, Restart, brutal_kill, worker, [?MODULE, FlowModule]},
-    {ok, ChildSpec};
-
-default(NodeName, FlowModule, sup_spec, _Opts) ->
-    ChildSpec = axb_flow_sup_sofo:start_spec(
-        {axb_flow_sup_sofo, NodeName, FlowModule},
-        {axb_flow_sup_sofo, start_link, [NodeName, FlowModule]}
-    ),
-    {ok, ChildSpec};
-
-default(NodeName, FlowModule, meta, _Opts) ->
-    {ok, [
-        {node, NodeName},
-        {flow, FlowModule}
-    ]}.
-
+%%% ============================================================================
+%%% API functions.
+%%% ============================================================================
 
 %%
 %%  Start this flow under the specified supervisor.
 %%
-start_sup(NodeName, FlowModule, Args, Opts) ->
+start_sup(StartFun, Opts) ->
     {ok, FlowId, RouteId} = resolve_ids(Opts),
     {ok, ClientRef} = resolve_client_ref(Opts),
-    NewOpts = [{flow_id, FlowId}, {route_id, RouteId}, {client, ClientRef} | Opts],
-    {ok, _} = axb_flow_sup:start_flow(NodeName, FlowModule, Args, NewOpts),
+    EnrichedOpts = [{flow_id, FlowId}, {route_id, RouteId}, {client, ClientRef} | Opts],
+    {ok, _} = StartFun(EnrichedOpts),
     {ok, FlowId}.
 
 
 %%
 %%  Start link.
 %%
-start_link(NodeName, FlowModule, Args, Opts) ->
+start_link(NodeName, _FlowMgrModule, FlowModule, Args, Opts) ->
     {ok, FlowId, RouteId} = resolve_ids(Opts),
     {ok, ClientRef} = resolve_client_ref(Opts),
+    % TODO: notify flow mgr.
     gen_fsm:start_link(?REF(FlowId), ?MODULE, {NodeName, FlowModule, Args, FlowId, RouteId, ClientRef}, Opts).
 
 
@@ -231,9 +192,9 @@ wait_response(FlowId, Timeout) ->
 
 
 
-%% =============================================================================
-%%  API functions for FSM process only.
-%% =============================================================================
+%%% ============================================================================
+%%% API functions for FSM process only.
+%%% ============================================================================
 
 %%
 %%
@@ -269,9 +230,9 @@ related_id(Name, Value) ->
 
 
 
-%% =============================================================================
-%%  Internal state.
-%% =============================================================================
+%%% ============================================================================
+%%% Internal state.
+%%% ============================================================================
 
 -record(state, {
     node        :: term(),
@@ -286,9 +247,9 @@ related_id(Name, Value) ->
 
 
 
-%% =============================================================================
-%%  Callbacks for `gen_fsm`.
-%% =============================================================================
+%%% ============================================================================
+%%% Callbacks for `gen_fsm`.
+%%% ============================================================================
 
 %%
 %%
@@ -371,9 +332,9 @@ code_change(OldVsn, StateName, StateData, Extra) ->
 
 
 
-%% =============================================================================
-%%  Internal functions.
-%% =============================================================================
+%%% ============================================================================
+%%% Internal functions.
+%%% ============================================================================
 
 %%
 %%

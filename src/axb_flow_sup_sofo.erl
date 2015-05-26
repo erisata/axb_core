@@ -62,7 +62,10 @@ start_link(NodeName, FlowMgrModule, FlowModule, Opts) ->
 %%  Start new flow process in this supervisor.
 %%
 start_flow(NodeName, FlowMgrModule, FlowModule, FlowArgs, FlowOpts) ->
-    supervisor:start_child(?REF(NodeName, FlowMgrModule, FlowModule), [FlowArgs, FlowOpts]).
+    StartFun = fun (EnrichedFlowOpts) ->
+        supervisor:start_child(?REF(NodeName, FlowMgrModule, FlowModule), [FlowArgs, EnrichedFlowOpts])
+    end,
+    axb_flow:start_sup(StartFun, FlowOpts).
 
 
 

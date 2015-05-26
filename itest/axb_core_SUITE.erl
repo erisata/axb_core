@@ -258,10 +258,13 @@ test_flow_pool(_Config) ->
     % Start the node and the manager, it should wait for the flow manager.
     {ok, NodePid} = axb_itest_node:start_link(flow_mgr),
     {ok, FlowMgrPid} = axb_itest_flows:start_link(single),
-    timer:sleep(500),
+    timer:sleep(50),
     true = have_node(Node),
     true = erlang:is_process_alive(NodePid),
     {ok, [{axb_itest_flows, running}]} = axb_node:info(Node, flow_mgrs),
+    %
+    % Start some supervised flows.
+    {ok, saved} = axb_itest_flow:perform(msg),
     ok.
 
 
