@@ -1,0 +1,21 @@
+#!/bin/bash
+
+. ./erl_node
+
+case "$1" in
+    status)
+        $NODETOOL rpc axb_console status
+        ;;
+    stats)
+        $NODETOOL rpc axb_console stats
+        ;;
+    online)
+        $NODETOOL rpc axb_console set_mode online $@
+        ;;
+    offline)
+        $NODETOOL rpc axb_console set_mode offline $@
+        ;;
+    *)
+        echo "Usage: $SCRIPT { status | stats | online <arg> | offline <arg> }
+esac
+

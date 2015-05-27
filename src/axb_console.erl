@@ -15,10 +15,37 @@
 %\--------------------------------------------------------------------
 
 %%%
-%%% TODO: AxB Console implementation.
+%%% AxB Console implementation.
 %%% Functions in this module are invoked from the shell script.
 %%%
 -module(axb_console).
 -compile([{parse_transform, lager_transform}]).
+-export([status/1, stats/1, set_mode/1]).
+
+%% =============================================================================
+%%  Public API.
+%% =============================================================================
+
+%%
+%%
+%%
+status([]) ->
+    ok = axb:info(print).
+
+
+%%
+%%
+%%
+stats([]) ->
+    % TODO: Implement.
+    ok.
+
+
+%%
+%%
+%%
+set_mode([_Mode, _Subject]) ->
+    % TODO: Implement.
+    ok.
 
 
