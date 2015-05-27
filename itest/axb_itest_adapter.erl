@@ -22,7 +22,7 @@
 -behaviour(axb_adapter).
 -compile([{parse_transform, lager_transform}]).
 -export([start_link/1, send_message/1, message_received/1]).
--export([provided_services/1, service_changed/3]).
+-export([provided_domains/1, domain_changed/3]).
 
 
 %%% =============================================================================
@@ -59,16 +59,16 @@ message_received(SomeArg) ->
 %%% =============================================================================
 
 %%
-%%  Returns a list of services, provided by this adapter.
+%%  Returns a list of domains, provided by this adapter.
 %%
-provided_services(empty) ->
+provided_domains(empty) ->
     {ok, []};
 
-provided_services(single) ->
+provided_domains(single) ->
     {ok, [main]}.
 
 %%
-%%  Receives notification on a service state change.
+%%  Receives notification on a domain state change.
 %%
-service_changed(_ServiceName, _Direction, _Online) ->
+domain_changed(_ServiceName, _Direction, _Online) ->
     ok.

@@ -84,7 +84,7 @@ start_link(NodeName, Module, CBModule, Args, Opts) ->
 -spec info(
         NodeName :: atom(),
         Module   :: module(),
-        What     :: all | flows
+        What     :: all | flows | details
     ) ->
         {ok, Info :: term()}.
 
@@ -267,6 +267,15 @@ handle_sync_event({info, What}, _From, StateName, StateData) ->
         flows ->
             {ok, [
                 {M, flow_status(F)} || F = #flow{mod = M} <- Flows
+            ]};
+        details ->
+            {ok, [
+                {flows, [
+                    {M, [
+                        {status, flow_status(F)}
+                    ]}
+                    || F = #flow{mod = M} <- Flows
+                ]}
             ]}
     end,
     {reply, Reply, StateName, StateData};

@@ -23,9 +23,10 @@
 -export([
     test_node_registration/1,
     test_adapter_registration/1,
-    test_adapter_services/1,
+    test_adapter_domains/1,
     test_flow_mgr_registration/1,
-    test_flow_pool/1
+    test_flow_pool/1,
+    test_info/1
 ]).
 -include_lib("common_test/include/ct.hrl").
 -include_lib("axb_core/include/axb.hrl").
@@ -37,9 +38,10 @@ all() ->
     [
         test_node_registration,
         test_adapter_registration,
-        test_adapter_services,
+        test_adapter_domains,
         test_flow_mgr_registration,
-        test_flow_pool
+        test_flow_pool,
+        test_info
     ].
 
 
@@ -66,7 +68,7 @@ end_per_suite(Config) ->
 
 have_node(Name) ->
     {ok, Nodes} = axb:info(nodes),
-    lists:member(Name, Nodes).
+    lists:member({Name, running}, Nodes).
 
 
 unlink_kill(Pid) ->
@@ -87,11 +89,11 @@ test_node_registration(_Config) ->
     Node = axb_itest_node:name(),
     false = have_node(Node),
     % Start the node.
-    {ok, Pid} = axb_itest_node:start_link(empty),
+    {ok, NodePid} = axb_itest_node:start_link(empty),
     timer:sleep(50),
     true = have_node(Node),
     {ok, []} = axb_node:info(Node, adapters),
-    ok = unlink_kill(Pid),
+    ok = unlink_kill(NodePid),
     % Terminate the node, it should be unregistered.
     timer:sleep(50),
     false = have_node(Node),
@@ -149,14 +151,15 @@ test_adapter_registration(_Config) ->
     %
     % Cleanup.
     ok = unlink_kill(NodePid),
+    timer:sleep(50),
     ok.
 
 
 %%
-%%  Test adapter services.
+%%  Test adapter domains.
 %%
-test_adapter_services(_Config) ->
-    lager:debug("Testcase test_adapter_services - start"),
+test_adapter_domains(_Config) ->
+    lager:debug("Testcase test_adapter_domains - start"),
     Node = axb_itest_node:name(),
     %
     % Start the node, it should wait for the adapter.
@@ -166,31 +169,32 @@ test_adapter_services(_Config) ->
     true = have_node(Node),
     true = erlang:is_process_alive(NodePid),
     {ok, [{axb_itest_adapter, running}]} = axb_node:info(Node, adapters),
-    {ok, [{axb_itest_adapter, [{main, true, true}]}]} = axb_node:info(Node, services),
+    {ok, [{main, true, true}]} = axb_adapter:info(Node, axb_itest_adapter, domains),
     {ok, a1} = axb_itest_adapter:send_message(a1),
     {ok, a2} = axb_itest_adapter:message_received(a2),
     %
-    % Disable services.
-    ok = axb_node:adapter_service_online(Node, axb_itest_adapter, main, all, false),
-    {ok, [{axb_itest_adapter, [{main, false, false}]}]} = axb_node:info(Node, services),
-    {error, service_offline} = axb_itest_adapter:send_message(a1),
-    {error, service_offline} = axb_itest_adapter:message_received(a2),
+    % Disable domains.
+    ok = axb_adapter:domain_online(Node, axb_itest_adapter, main, all, false),
+    {ok, [{main, false, false}]} = axb_adapter:info(Node, axb_itest_adapter, domains),
+    {error, domain_offline} = axb_itest_adapter:send_message(a1),
+    {error, domain_offline} = axb_itest_adapter:message_received(a2),
     %
-    % Enable internal service.
-    ok = axb_node:adapter_service_online(Node, axb_itest_adapter, main, internal, true),
-    {ok, [{axb_itest_adapter, [{main, true, false}]}]} = axb_node:info(Node, services),
+    % Enable internal domain.
+    ok = axb_adapter:domain_online(Node, axb_itest_adapter, main, internal, true),
+    {ok, [{main, true, false}]} = axb_adapter:info(Node, axb_itest_adapter, domains),
     {ok, a3}                 = axb_itest_adapter:send_message(a3),
-    {error, service_offline} = axb_itest_adapter:message_received(a4),
+    {error, domain_offline} = axb_itest_adapter:message_received(a4),
     %
-    % External service online also.
-    ok = axb_node:adapter_service_online(Node, axb_itest_adapter, main, external, true),
-    {ok, [{axb_itest_adapter, [{main, true, true}]}]} = axb_node:info(Node, services),
+    % External domain online also.
+    ok = axb_adapter:domain_online(Node, axb_itest_adapter, main, external, true),
+    {ok, [{main, true, true}]} = axb_adapter:info(Node, axb_itest_adapter, domains),
     {ok, a5} = axb_itest_adapter:send_message(a5),
     {ok, a6} = axb_itest_adapter:message_received(a6),
     %
     % Cleanup.
     ok = unlink_kill(NodePid),
     ok = unlink_kill(AdapterPid),
+    timer:sleep(50),
     ok.
 
 
@@ -245,6 +249,7 @@ test_flow_mgr_registration(_Config) ->
     %
     % Cleanup.
     ok = unlink_kill(NodePid),
+    timer:sleep(50),
     ok.
 
 
@@ -278,6 +283,68 @@ test_flow_pool(_Config) ->
     {ok, saved} = axb_itest_flow:perform(msg),
     ok = unlink_kill(FlowMgrPid),
     ok = unlink_kill(NodePid),
+    timer:sleep(50),
+    ok.
+
+%%
+%%  Test, if axb info is returned correctly.
+%%
+test_info(_Config) ->
+    lager:debug("Testcase test_info - start"),
+    {ok, NodePid} = axb_itest_node:start_link(both),
+    {ok, FlowMgrPid} = axb_itest_flows:start_link(single),
+    {ok, AdapterPid} = axb_itest_adapter:start_link(single),
+    timer:sleep(50),
+    {ok, [
+        {axb_itest, [
+            {status, running},
+            {adapters, [
+                {axb_itest_adapter, [
+                    {status, running},
+                    {domains, [
+                        {main, [
+                            {internal, online},
+                            {external, online}
+                        ]}
+                    ]}
+                ]}
+            ]},
+            {flow_mgrs, [
+                {axb_itest_flows, [
+                    {status, running},
+                    {flows, [
+                        {axb_itest_flow, [
+                            {status, online}
+                        ]}
+                    ]}
+                ]}
+            ]}
+        ]}
+    ]} = axb:info(details),
+    {ok, [
+        {axb_itest, running}
+    ]} = axb:info(nodes),
+    {ok, [
+        {axb_itest, [
+            {axb_itest_adapter, running}
+        ]}
+    ]} = axb:info(adapters),
+    {ok, [
+        {axb_itest, [
+            {axb_itest_flows, running}
+        ]}
+    ]} = axb:info(flow_mgrs),
+    {ok, [
+        {axb_itest, [
+            {axb_itest_flows, [
+                {axb_itest_flow, online}
+            ]}
+        ]}
+    ]} = axb:info(flows),
+    ok = unlink_kill(AdapterPid),
+    ok = unlink_kill(FlowMgrPid),
+    ok = unlink_kill(NodePid),
+    timer:sleep(50),
     ok.
 
 

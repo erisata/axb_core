@@ -19,16 +19,14 @@
 %%%
 %%% Main functions of this behaviour are the following:
 %%%
-%%%   * Allow management of services, provided by the adapter (disable temporary, etc.);
+%%%   * Allow management of domains, provided by the adapter (disable temporary, etc.);
 %%%   * Collect metrics of the adapter operation;
 %%%   * Define metadata, describing the adapter.
-%%%
-%%% TODO: Rename Service to Domain.
 %%%
 -module(axb_adapter).
 -behaviour(gen_server).
 -compile([{parse_transform, lager_transform}]).
--export([start_link/4, info/3, service_online/5, command/6]).
+-export([start_link/4, info/3, domain_online/5, command/6]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -define(REG(NodeName, Module), {n, l, {?MODULE, NodeName, Module}}).
@@ -40,19 +38,19 @@
 %%% =============================================================================
 
 %%
-%%  This callback should return services, provided by this adapter.
+%%  This callback should return domains, provided by this adapter.
 %%
--callback provided_services(
+-callback provided_domains(
         Args :: term()
     ) ->
-        {ok, [ServiceName :: atom()]}.
+        {ok, [DomainName :: atom()]}.
 
 
 %%
-%%  This callback notifies the adapter about changed service states.
+%%  This callback notifies the adapter about changed domain states.
 %%
--callback service_changed(
-        ServiceName :: atom(),
+-callback domain_changed(
+        DomainName  :: atom(),
         Direction   :: internal | external,
         Online      :: boolean()
     ) ->
@@ -63,7 +61,7 @@
 %%% Internal state.
 %%% =============================================================================
 
--record(service, {
+-record(domain, {
     name        :: term(),
     internal    :: boolean(),
     external    :: boolean()
@@ -73,7 +71,7 @@
     node        :: atom(),
     module      :: module(),
     args        :: term(),
-    services    :: [#service{}]
+    domains     :: [#domain{}]
 }).
 
 
@@ -97,28 +95,28 @@ info(NodeName, Module, What) ->
 
 
 %%
-%%  Set operation mode for services, provided by the adapter.
+%%  Set operation mode for domains, provided by the adapter.
 %%
--spec service_online(
-        NodeName        :: atom(),
-        Module          :: module(),
-        ServiceNames    :: atom() | [atom()] | all,
-        Direction       :: internal | external | all | both,
-        Online          :: boolean()
+-spec domain_online(
+        NodeName    :: atom(),
+        Module      :: module(),
+        DomainNames :: atom() | [atom()] | all,
+        Direction   :: internal | external | all | both,
+        Online      :: boolean()
     ) ->
         ok.
 
-service_online(NodeName, Module, ServiceNames, Direction, Online) ->
-    gen_server:call(?REF(NodeName, Module), {service_online, ServiceNames, Direction, Online}).
+domain_online(NodeName, Module, DomainNames, Direction, Online) ->
+    gen_server:call(?REF(NodeName, Module), {domain_online, DomainNames, Direction, Online}).
 
 
 %%
-%%  Checks, is particular service is online.
+%%  Checks, is particular domain is online.
 %%  This function uses gproc to perform this, therefore is not using the adapter process.
 %%
-service_online(NodeName, Module, ServiceName, Direction) ->
-    Services = gproc:lookup_value(?REG(NodeName, Module)),
-    #service{internal = I, external = E} = lists:keyfind(ServiceName, #service.name, Services),
+domain_online(NodeName, Module, DomainName, Direction) ->
+    Domains = gproc:lookup_value(?REG(NodeName, Module)),
+    #domain{internal = I, external = E} = lists:keyfind(DomainName, #domain.name, Domains),
     case Direction of
         internal -> I;
         external -> E
@@ -127,19 +125,19 @@ service_online(NodeName, Module, ServiceName, Direction) ->
 
 
 %%
-%%  Executes command in the context of particular service.
+%%  Executes command in the context of the particular domain.
 %%  This function uses gproc to perform this, therefore is not using the adapter process.
 %%
-command(NodeName, Module, Service, Direction, CommandName, CommandFun) ->
-    case service_online(NodeName, Module, Service, Direction) of
+command(NodeName, Module, Domain, Direction, CommandName, CommandFun) ->
+    case domain_online(NodeName, Module, Domain, Direction) of
         true ->
-            lager:debug("Executing ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, Module, Service]),
+            lager:debug("Executing ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, Module, Domain]),
             % TODO: Add metrics here.
             % TODO: Generate CTX_ID here, if the calling process does not have one.
             CommandFun();
         false ->
-            lager:warning("Dropping ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, Module, Service]),
-            {error, service_offline}
+            lager:warning("Dropping ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, Module, Domain]),
+            {error, domain_offline}
     end.
 
 
@@ -152,19 +150,19 @@ command(NodeName, Module, Service, Direction, CommandName, CommandFun) ->
 %%
 %%
 init({NodeName, Module, Args}) ->
-    case Module:provided_services(Args) of
-        {ok, ServiceNames} ->
-            Services = [
-                #service{name = N, internal = false, external = false}
-                || N <- ServiceNames
+    case Module:provided_domains(Args) of
+        {ok, DomainNames} ->
+            Domains = [
+                #domain{name = N, internal = false, external = false}
+                || N <- DomainNames
             ],
             State = #state{
                 node     = NodeName,
                 module   = Module,
                 args     = Args,
-                services = Services
+                domains = Domains
             },
-            true = gproc:set_value(?REG(NodeName, Module), Services),
+            true = gproc:set_value(?REG(NodeName, Module), Domains),
             ok = axb_node:register_adapter(NodeName, Module, []),
             {ok, State}
     end.
@@ -173,44 +171,55 @@ init({NodeName, Module, Args}) ->
 %%
 %%
 %%
-handle_call({service_online, ServiceNames, Direction, Online}, _From, State) ->
+handle_call({domain_online, DomainNames, Direction, Online}, _From, State) ->
     #state{
         node = NodeName,
         module = Module,
-        services = Services
+        domains = Domains
     } = State,
-    AvailableServices = [ N || #service{name = N} <- Services ],
-    AffectedServices = case ServiceNames of
-        all                          -> AvailableServices;
-        _ when is_atom(ServiceNames) -> [ServiceNames];
-        _ when is_list(ServiceNames) -> lists:usort(ServiceNames)
+    AvailableDomains = [ N || #domain{name = N} <- Domains ],
+    AffectedDomains = case DomainNames of
+        all                         -> AvailableDomains;
+        _ when is_atom(DomainNames) -> [DomainNames];
+        _ when is_list(DomainNames) -> lists:usort(DomainNames)
     end,
-    [] = AffectedServices -- AvailableServices,
-    ApplyActionFun = fun (Service = #service{name = ServiceName}) ->
-        case lists:member(ServiceName, AffectedServices) of
+    [] = AffectedDomains -- AvailableDomains,
+    ApplyActionFun = fun (Domain = #domain{name = DomainName}) ->
+        case lists:member(DomainName, AffectedDomains) of
             true ->
-                service_mode_change(Service, Direction, Online);
+                domain_mode_change(Domain, Direction, Online);
             false ->
-                {Service, []}
+                {Domain, []}
         end
     end,
-    NewServicesWithActions = lists:map(ApplyActionFun, Services),
-    NewServices = [ S || {S, _} <- NewServicesWithActions],
-    ServActions = lists:append([ A || {_, A} <- NewServicesWithActions]),
-    true = gproc:set_value(?REG(NodeName, Module), NewServices),    % NOTE: Possible race condition (vs service_changed).
-    NotifyActionsFun = fun ({SN, D, O}) ->
-        lager:info("Node ~p adapter ~p service ~p direction=~p set online=~p", [NodeName, Module, SN, D, O]),
-        ok = Module:service_changed(SN, D, O)
+    NewDomainsWithActions = lists:map(ApplyActionFun, Domains),
+    NewDomains = [ S || {S, _} <- NewDomainsWithActions],
+    ServActions = lists:append([ A || {_, A} <- NewDomainsWithActions]),
+    true = gproc:set_value(?REG(NodeName, Module), NewDomains),    % NOTE: Possible race condition (vs domain_changed).
+    NotifyActionsFun = fun ({Dom, D, O}) ->
+        lager:info("Node ~p adapter ~p domain ~p direction=~p set online=~p", [NodeName, Module, Dom, D, O]),
+        ok = Module:domain_changed(Dom, D, O)
     end,
     ok = lists:foreach(NotifyActionsFun, ServActions),
-    NewState = State#state{services = NewServices},
+    NewState = State#state{domains = NewDomains},
     {reply, ok, NewState};
 
-handle_call({info, What}, _From, State = #state{services = Services}) ->
+handle_call({info, What}, _From, State = #state{domains = Domains}) ->
     case What of
-        services ->
-            ServiceInfo = [ {N, I, E} || #service{name = N, internal = I, external = E} <- Services ],
-            {reply, {ok, ServiceInfo}, State}
+        domains ->
+            DomainInfo = [ {N, I, E} || #domain{name = N, internal = I, external = E} <- Domains ],
+            {reply, {ok, DomainInfo}, State};
+        details ->
+            Details = [
+                {domains, [
+                    {N, [
+                        {internal, domain_status(I)},
+                        {external, domain_status(E)}
+                    ]}
+                    || #domain{name = N, internal = I, external = E} <- Domains ]
+                }
+            ],
+            {reply, {ok, Details}, State}
     end.
 
 
@@ -246,9 +255,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%% =============================================================================
 
 %%
-%%  Returns service state, after a change applied and actions, needed for that.
+%%  Returns domain state, after a change applied and actions, needed for that.
 %%
-service_mode_change(Service = #service{name = Name, internal = Internal, external = External}, Direction, Online) ->
+domain_mode_change(Domain = #domain{name = Name, internal = Internal, external = External}, Direction, Online) ->
     {NewInternal, NewExternal} = case Direction of
         internal -> {Online,   External};
         external -> {Internal, Online};
@@ -259,6 +268,12 @@ service_mode_change(Service = #service{name = Name, internal = Internal, externa
         case NewInternal =:= Internal of true -> []; false -> [{Name, internal, NewInternal}] end,
         case NewExternal =:= External of true -> []; false -> [{Name, external, NewExternal}] end
     ]),
-    {Service#service{internal = NewInternal, external = NewExternal}, Actions}.
+    {Domain#domain{internal = NewInternal, external = NewExternal}, Actions}.
 
+
+%%
+%%
+%%
+domain_status(true) -> online;
+domain_status(false) -> offline.
 

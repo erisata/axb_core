@@ -21,7 +21,7 @@
 -behaviour(gen_server).
 -compile([{parse_transform, lager_transform}]).
 -export([start_spec/0, start_link/0]).
--export([register_node/2, unregister_node/1, registered_nodes/0]).
+-export([register_node/2, unregister_node/1, info/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 
@@ -63,8 +63,8 @@ unregister_node(NodeName) ->
 %%
 %%  Returns a list of registered nodes.
 %%
-registered_nodes() ->
-    gen_server:call(?MODULE, registered_nodes).
+info(What) ->
+    gen_server:call(?MODULE, {info, What}).
 
 
 
@@ -73,8 +73,12 @@ registered_nodes() ->
 %%% ============================================================================
 
 -record(node, {
-    name        :: term(),      %%  Node name.
-    pid         :: pid()        %%  Node process PID.
+    name        :: term(),              %%  Node name.
+    pid         :: pid() | undefined,   %%  Node process PID.
+    reg_count   :: integer(),           %%  Number of times the node was registered (probably restarted).
+    known_from  :: os:timestamp(),      %%  Time of the first node registration.
+    start_time  :: os:timestamp(),      %%  Time of the last node registration.
+    term_time   :: os:timestamp()       %%  Time of the last exit, if the node is down.
 }).
 
 -record(state, {
@@ -102,21 +106,37 @@ init({}) ->
 %%
 %%
 handle_call({register_node, NodeName, NodePid, _Opts}, _From, State = #state{nodes = Nodes}) ->
+    Now = os:timestamp(),
     case lists:keyfind(NodeName, #node.name, Nodes) of
         false ->
             true = erlang:link(NodePid),
             Node = #node{
                 name = NodeName,
-                pid  = NodePid
+                pid = NodePid,
+                reg_count = 1,
+                known_from = Now,
+                start_time = Now,
+                term_time = undefined
             },
             lager:info("Node ~p registered, pid=~p", [NodeName, NodePid]),
             {reply, ok, State#state{nodes = [Node | Nodes]}};
-        #node{pid = NodePid} ->
+        #node{pid = OldPid} when OldPid =:= NodePid ->
             lager:warning("Node ~p already registered with the same pid=~p", [NodeName, NodePid]),
             {reply, ok, State};
-        #node{pid = OldPid} ->
+        #node{pid = undefined, reg_count = RegCount} = Node ->
+            true = erlang:link(NodePid),
+            NewNode = Node#node{
+                pid = NodePid,
+                reg_count = RegCount + 1,
+                start_time = Now,
+                term_time = undefined
+            },
+            NewNodes = lists:keyreplace(NodeName, #node.name, Nodes, NewNode),
+            lager:info("Node ~p re-registered, pid=~p", [NodeName, NodePid]),
+            {reply, ok, State#state{nodes = NewNodes}};
+        #node{pid = OldPid} when OldPid =/= NodePid ->
             lager:warning("Node ~p already registered, newPid=~p, oldPid=~p", [NodeName, NodePid, OldPid]),
-            Reason = {node_already_registered, NodeName, NodePid},
+            Reason = {node_already_registered, OldPid},
             {reply, {error, Reason}, State}
     end;
 
@@ -127,14 +147,28 @@ handle_call({unregister_node, NodeName}, _From, State = #state{nodes = Nodes}) -
             Nodes;
         {value, #node{pid = NodePid}, OtherNodes} ->
             true = erlang:unlink(NodePid),
-            lager:info("Node ~p unregistered by request, pid=~p", [NodeName, NodePid]),
+            lager:info("Node ~p unregistered, pid=~p", [NodeName, NodePid]),
             OtherNodes
     end,
     {reply, ok, State#state{nodes = NewNodes}};
 
-handle_call(registered_nodes, _From, State = #state{nodes = Nodes}) ->
-    NodeNames = [ N || #node{name = N} <- Nodes ],
-    {reply, {ok, NodeNames}, State}.
+handle_call({info, What}, _From, State = #state{nodes = Nodes}) ->
+    case What of
+        list ->
+            List = [ Name || #node{name = Name} <- Nodes ],
+            {reply, {ok, List}, State};
+        status ->
+            List = [ {Name, node_status(Node)} || Node = #node{name = Name} <- Nodes ],
+            {reply, {ok, List}, State};
+        details ->
+            List = [
+                {Name, [
+                    {status, node_status(Node)}
+                ]}
+                || Node = #node{name = Name} <- Nodes
+            ],
+            {reply, {ok, List}, State}
+    end.
 
 
 %%
@@ -148,12 +182,16 @@ handle_cast(_Request, State) ->
 %%
 %%
 handle_info({'EXIT', From, Reason}, State = #state{nodes = Nodes}) ->
-    case lists:keytake(From, #node.pid, Nodes) of
+    case lists:keyfind(From, #node.pid, Nodes) of
         false ->
+            lager:warning("Linked process ~p died, reason=~p.", [From, Reason]),
             {stop, Reason, State};
-        {value, #node{name = NodeName}, OtherNodes} ->
-            lager:warning("Node ~p unregistered, because it died, pid=~p, reason=~p.", [NodeName, From, Reason]),
-            {noreply, State#state{nodes = OtherNodes}}
+        Node = #node{name = NodeName} ->
+            Now = os:timestamp(),
+            NewNode = Node#node{pid = undefined, term_time = Now},
+            NewNodes = lists:keyreplace(NodeName, #node.name, Nodes, NewNode),
+            lager:warning("Node ~p died, pid=~p, reason=~p.", [NodeName, From, Reason]),
+            {noreply, State#state{nodes = NewNodes}}
     end;
 
 handle_info(_Request, State) ->
@@ -177,5 +215,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%% ============================================================================
 %%% Internal functions.
 %%% ============================================================================
+
+%%
+%%  Determine adapter's status.
+%%
+node_status(#node{pid = undefined})            -> down;
+node_status(#node{pid = Pid}) when is_pid(Pid) -> running.
 
 

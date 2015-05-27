@@ -71,8 +71,12 @@ init(adapter) ->
 init(flow_mgr) ->
     AdaptersToWait = [],
     FlowMgrsToWait = [axb_itest_flows],
-    {ok, AdaptersToWait, FlowMgrsToWait}.
+    {ok, AdaptersToWait, FlowMgrsToWait};
 
+init(both) ->
+    AdaptersToWait = [axb_itest_adapter],
+    FlowMgrsToWait = [axb_itest_flows],
+    {ok, AdaptersToWait, FlowMgrsToWait}.
 
 
 %%

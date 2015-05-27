@@ -19,9 +19,9 @@
 %%% Startup procedure:
 %%%
 %%%   * Start node.
-%%%   * Start adapters / internal services.
+%%%   * Start adapters / internal services in all domains.
 %%%   * Start flow manager / flows in online mode.
-%%%   * Start adapters / external services.
+%%%   * Start adapters / external services in all domains.
 %%%   * TODO: Start singleton processes.
 %%%   * TODO: Register to the cluster. (Start the clustering? Maybe it is not the node's responsibility?)
 %%%
@@ -39,8 +39,7 @@
     register_adapter/3,
     register_flow_mgr/3,
     unregister_adapter/2,
-    unregister_flow_mgr/2,
-    adapter_service_online/5
+    unregister_flow_mgr/2
 ]).
 -export([init/1, handle_sync_event/4, handle_event/3, handle_info/3, terminate/3, code_change/4]).
 -export([waiting/2, starting_internal/2, starting_flows/2, starting_external/2, ready/2]).
@@ -142,22 +141,6 @@ unregister_flow_mgr(NodeName, FlowMgrName) ->
     gen_fsm:sync_send_all_state_event(?REF(NodeName), {unregister_flow_mgr, FlowMgrName}).
 
 
-%%
-%%  Set operation mode for services, provided by the adapter.
-%%
--spec adapter_service_online(
-        NodeName        :: atom(),
-        Module          :: module(),
-        ServiceNames    :: atom() | [atom()] | all,
-        Direction       :: internal | external | all | both,
-        Online          :: boolean()
-    ) ->
-        ok.
-
-adapter_service_online(NodeName, Module, ServiceNames, Direction, Online) ->
-    axb_adapter:service_online(NodeName, Module, ServiceNames, Direction, Online).
-
-
 
 %%% =============================================================================
 %%% Internal state.
@@ -226,7 +209,7 @@ waiting(timeout, StateData = #state{adapters = Adapters, flow_mgrs = FlowMgrs}) 
 starting_internal(timeout, StateData = #state{name = NodeName, adapters = Adapters}) ->
     lager:debug("Node ~p is starting internal services for all known adapters.", [NodeName]),
     StartAdapterInternalServices = fun (#adapter{mod = AdapterModule}) ->
-        ok = axb_adapter:service_online(NodeName, AdapterModule, all, internal, true)
+        ok = axb_adapter:domain_online(NodeName, AdapterModule, all, internal, true)
     end,
     ok = lists:foreach(StartAdapterInternalServices, Adapters),
     {next_state, starting_flows, StateData, 0}.
@@ -250,7 +233,7 @@ starting_flows(timeout, StateData = #state{name = NodeName, flow_mgrs = FlowMgrs
 starting_external(timeout, StateData = #state{name = NodeName, adapters = Adapters}) ->
     lager:debug("Node ~p is starting external services for all known adapters.", [NodeName]),
     StartAdapterExternalServices = fun (#adapter{mod = AdapterModule}) ->
-        ok = axb_adapter:service_online(NodeName, AdapterModule, all, all, true)
+        ok = axb_adapter:domain_online(NodeName, AdapterModule, all, all, true)
     end,
     ok = lists:foreach(StartAdapterExternalServices, Adapters),
     {next_state, ready, StateData, 0}.
@@ -350,7 +333,6 @@ handle_sync_event({unregister_flow_mgr, Module}, _From, StateName, StateData) ->
 
 handle_sync_event({info, What}, _From, StateName, StateData) ->
     #state{
-        name = NodeName,
         adapters = Adapters,
         flow_mgrs = FlowMgrs
     } = StateData,
@@ -363,13 +345,21 @@ handle_sync_event({info, What}, _From, StateName, StateData) ->
             {ok, [
                 {M, flow_mgr_status(F)} || F = #flow_mgr{mod = M} <- FlowMgrs
             ]};
-        services ->
-            AdapterServices = fun (#adapter{mod = AdapterModule}) ->
-                {ok, Services} = axb_adapter:info(NodeName, AdapterModule, services),
-                {AdapterModule, Services}
-            end,
-            Services = lists:map(AdapterServices, Adapters),
-            {ok, Services}
+        details ->
+            {ok, [
+                {adapters, [
+                    {M, [
+                        {status, adapter_status(A)}
+                    ]}
+                    || A = #adapter{mod = M} <- Adapters
+                ]},
+                {flow_mgrs, [
+                    {M, [
+                        {status, flow_mgr_status(F)}
+                    ]}
+                    || F = #flow_mgr{mod = M} <- FlowMgrs
+                ]}
+            ]}
     end,
     {reply, Reply, StateName, StateData}.
 
