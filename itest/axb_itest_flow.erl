@@ -39,9 +39,13 @@
 %%  This is an alternative for the `start_link/1` function.
 %%
 perform(Message) ->
-    {ok, FlowId} = axb_flow_sup_sofo:start_flow(axb_itest_node:name(), axb_itest_flows, ?MODULE, {Message}, []),
-    lager:debug("Flow ~p started, flowId=~p", [?MODULE, FlowId]),
-    axb_flow:wait_response(FlowId, 1000).
+    case axb_flow_sup_sofo:start_flow(axb_itest_node:name(), axb_itest_flows, ?MODULE, {Message}, []) of
+        {ok, FlowId} ->
+            lager:debug("Flow ~p started, flowId=~p", [?MODULE, FlowId]),
+            axb_flow:wait_response(FlowId, 1000);
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 
 %%% ============================================================================
@@ -51,8 +55,8 @@ perform(Message) ->
 %%
 %%  Return start specification for the corresponding flow supervisor.
 %%
-sup_start_spec(_Args) ->
-    axb_flow_sup_sofo:sup_start_spec(axb_itest_node:name(), axb_itest_flows, ?MODULE, []).
+sup_start_spec({Domain}) ->
+    axb_flow_sup_sofo:sup_start_spec(axb_itest_node:name(), axb_itest_flows, ?MODULE, [{domain, Domain}]).
 
 
 

@@ -17,14 +17,15 @@
 %%%
 %%% Behaviour for a flow manager.
 %%%
-%%% TODO: Add functions for managing flows (suspend, etc).
-%%%
 -module(axb_flow_mgr).
 -behaviour(gen_fsm).
 -compile([{parse_transform, lager_transform}]).
--export([start_link/6, info/2, register_flow/2, unregister_flow/2, flows_online/4]).
+-export([start_link/5, info/3, register_flow/5, unregister_flow/3, flow_online/4, flow_online/3]).
 -export([init/1, handle_sync_event/4, handle_event/3, handle_info/3, terminate/3, code_change/4]).
 -export([waiting/2, ready/2]).
+
+-define(REG(NodeName, Module), {n, l, {?MODULE, NodeName, Module}}).
+-define(REF(NodeName, Module), {via, gproc, ?REG(NodeName, Module)}).
 
 -define(WAIT_INFO_DELAY, 5000).
 
@@ -41,6 +42,17 @@
         Args :: term()
     ) ->
         {ok, [FlowToWait :: module()]}.
+
+
+%%
+%%  This callback notifies the flow manager about changed flow states.
+%%
+-callback flow_changed(
+        FlowModile  :: module(),
+        Online      :: boolean(),
+        State       :: term()
+    ) ->
+        ok.
 
 
 %%
@@ -62,8 +74,8 @@
 %%
 %%  Start this flow manager.
 %%
-start_link(Name, NodeName, Module, MgrModule, Args, Opts) ->
-    gen_fsm:start_link(Name, ?MODULE, {NodeName, Module, MgrModule, Args}, Opts).
+start_link(NodeName, Module, CBModule, Args, Opts) ->
+    gen_fsm:start_link(?REF(NodeName, Module), ?MODULE, {NodeName, Module, CBModule, Args}, Opts).
 
 
 %%
@@ -71,36 +83,57 @@ start_link(Name, NodeName, Module, MgrModule, Args, Opts) ->
 %%
 -spec info(
         NodeName :: atom(),
+        Module   :: module(),
         What     :: all | flows
     ) ->
         {ok, Info :: term()}.
 
-info(Name, What) ->
-    gen_fsm:sync_send_all_state_event(Name, {info, What}).
+info(NodeName, Module, What) ->
+    gen_fsm:sync_send_all_state_event(?REF(NodeName, Module), {info, What}).
 
 
 %%
 %%  Register new flow to this manager.
 %%  This function must be called from the registering process.
 %%
-register_flow(Name, FlowModule) ->
+register_flow(NodeName, Module, FlowModule, Domain, Online) ->
     FlowPid = self(),
-    gen_fsm:sync_send_all_state_event(Name, {register_flow, FlowModule, FlowPid}).
+    gen_fsm:sync_send_all_state_event(?REF(NodeName, Module), {register_flow, FlowModule, Domain, Online, FlowPid}).
 
 
 
 %%
 %%  Unregister the flow from this manager.
 %%
-unregister_flow(Name, FlowModule) ->
-    gen_fsm:sync_send_all_state_event(Name, {unregister_flow, FlowModule}).
+unregister_flow(NodeName, Module, FlowModule) ->
+    gen_fsm:sync_send_all_state_event(?REF(NodeName, Module), {unregister_flow, FlowModule}).
 
 
 %%
 %%  Change flow status for the specific flow manager.
 %%
-flows_online(NodeName, FlowMgrModule, DomainsOrFlows, Online) ->
-    ok. % TODO Implement mode management.
+-spec flow_online(
+        NodeName  :: atom(),
+        Module    :: module(),
+        FlowNames :: FlowModule | Domain | all,
+        Online    :: boolean()
+    ) ->
+        ok
+    when
+        FlowModule :: module(),
+        Domain :: atom().
+
+flow_online(NodeName, Module, FlowNames, Online) ->
+    gen_fsm:sync_send_all_state_event(?REF(NodeName, Module), {flow_online, FlowNames, Online}).
+
+
+%%
+%%  Checks, if the flow is online or not.
+%%  This function is executed in the caller's process.
+%%
+flow_online(NodeName, Module, FlowModule) ->
+    Flows = gproc:lookup_value(?REG(NodeName, Module)),
+    lists:member({FlowModule, true}, Flows).
 
 
 
@@ -112,8 +145,10 @@ flows_online(NodeName, FlowMgrModule, DomainsOrFlows, Online) ->
 %%  Represents single flow type (not a flow instance).
 %%
 -record(flow, {
-    mod     :: module(),
-    pid     :: pid()
+    mod     :: module(),    %% Flow modue (and name).
+    pid     :: pid(),       %% PID of the flow supervisor.
+    domain  :: atom(),      %% Domain to which the flow belongs.
+    online  :: boolean()    %% Is the flow online?
 }).
 
 %%
@@ -141,16 +176,19 @@ init({NodeName, Module, CBModule, Args}) ->
     erlang:process_flag(trap_exit, true),
     case CBModule:init(Args) of
         {ok, FlowsToWait, CBState} ->
+            Flows = [ #flow{mod = F, pid = undefined, domain = undefined, online = false} || F <- FlowsToWait ],
             StateData = #state{
                 node = NodeName,
                 mod = Module,
                 cbm = CBModule,
                 cbs = CBState,
-                flows = [ #flow{mod = F} || F <- FlowsToWait ]
+                flows = Flows
             },
-            case have_all_deps(StateData) of
-                true  -> {ok, ready, StateData, 0};
-                false -> {ok, waiting, StateData, ?WAIT_INFO_DELAY}
+            ok = publish_attrs(StateData),
+            {ok, NewStateData} = notify_changes(Flows, StateData),
+            case have_all_deps(NewStateData) of
+                true  -> {ok, ready, NewStateData, 0};
+                false -> {ok, waiting, NewStateData, ?WAIT_INFO_DELAY}
             end;
         {stop, Reason} ->
             {stop, Reason};
@@ -177,9 +215,9 @@ ready(timeout, StateData = #state{node = NodeName, mod = Module}) ->
     {next_state, ready, StateData}.
 
 
-handle_sync_event({register_flow, FlowModule, FlowPid}, _From, StateName, StateData) ->
+handle_sync_event({register_flow, FlowModule, Domain, Online, FlowPid}, _From, StateName, StateData) ->
     #state{flows = Flows} = StateData,
-    NewFlow = #flow{mod = FlowModule, pid = FlowPid},
+    NewFlow = #flow{mod = FlowModule, pid = FlowPid, domain = Domain, online = Online},
     Register = fun (NewFlows) ->
         true = erlang:link(FlowPid),
         NewStateData = StateData#state{flows = NewFlows},
@@ -231,7 +269,27 @@ handle_sync_event({info, What}, _From, StateName, StateData) ->
                 {M, flow_status(F)} || F = #flow{mod = M} <- Flows
             ]}
     end,
-    {reply, Reply, StateName, StateData}.
+    {reply, Reply, StateName, StateData};
+
+handle_sync_event({flow_online, FlowNames, Online}, _From, StateName, StateData = #state{flows = Flows}) ->
+    lager:debug("Updating flow statuses, names=~p, online=~p", [FlowNames, Online]),
+    UpdateFlowStatus = fun
+        (F = #flow{mod = M, domain = D, online = O}, {UpdatedFlows, FlowChanges}) when O =/= Online ->
+            case (FlowNames =:= all) or (FlowNames =:= M) or (FlowNames =:= D) of
+                true ->
+                    NewFlow = F#flow{online = Online},
+                    {[NewFlow | UpdatedFlows], [NewFlow | FlowChanges]};
+                false ->
+                    {[F | UpdatedFlows], FlowChanges}
+            end;
+        (F = #flow{online = O}, {UpdatedFlows, FlowChanges}) when O =:= Online ->
+            {[F | UpdatedFlows], FlowChanges}
+    end,
+    {NewFlows, FlowChanges} = lists:foldl(UpdateFlowStatus, {[], []}, Flows),
+    NewStateData = StateData#state{flows = lists:reverse(NewFlows)},
+    ok = publish_attrs(NewStateData),
+    {ok, StateDataAfterNotify} = notify_changes(FlowChanges, NewStateData),
+    {reply, ok, StateName, StateDataAfterNotify}.
 
 
 %%
@@ -304,5 +362,26 @@ have_all_deps(#state{flows = Flows}) ->
 %%
 flow_status(#flow{pid = undefined})            -> down;
 flow_status(#flow{pid = Pid}) when is_pid(Pid) -> running.
+
+
+%%
+%%  Publish some data in gproc for faster access.
+%%
+publish_attrs(#state{node = NodeName, mod = Module, flows = Flows}) ->
+    FlowStatuses = [ {M, O} || #flow{mod = M, online = O} <- Flows],
+    true = gproc:set_value(?REG(NodeName, Module), FlowStatuses),
+    ok.
+
+
+%%
+%%
+%%
+notify_changes(ChangedFlows, StateData = #state{cbm = CBModule, cbs = CBState}) ->
+    NotifyChanges = fun (#flow{mod = M, online = O}, CBS) ->
+        {ok, NewCBS} = CBModule:flow_changed(M, O, CBS),
+        NewCBS
+    end,
+    NewCBState = lists:foldr(NotifyChanges, CBState, ChangedFlows),
+    {ok, StateData#state{cbs = NewCBState}}.
 
 

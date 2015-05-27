@@ -24,10 +24,8 @@
 -module(axb_flow_pool_mgr).
 -compile([{parse_transform, lager_transform}]).
 -behaviour(axb_flow_mgr).
--export([start_link/4, register_flow_sup/4, register_flow/3, unregister_flow/3]).
--export([init/1, code_change/3]).
-
--define(REF(NodeName, Module), {via, gproc, {n, l, {?MODULE, NodeName, Module}}}).
+-export([start_link/4, register_flow_sup/4]).
+-export([init/1, flow_changed/3, code_change/3]).
 
 
 %%% ============================================================================
@@ -38,7 +36,7 @@
 %%  Start the flow manager process.
 %%
 start_link(NodeName, Module, Args, Opts) ->
-    axb_flow_mgr:start_link(?REF(NodeName, Module), NodeName, Module, ?MODULE, {NodeName, Module, Args}, Opts).
+    axb_flow_mgr:start_link(NodeName, Module, ?MODULE, {NodeName, Module, Args}, Opts).
 
 
 %%
@@ -50,21 +48,6 @@ register_flow_sup(NodeName, Module, FlowModule, FlowArgs) ->
     StartFun = start_flow_sup_fun(NodeName, Module, FlowModule, FlowArgs),
     {ok, _Pid} = StartFun(),
     ok.
-
-
-%%
-%%  Register new flow to this manager.
-%%  This function must be called from the registering process.
-%%
-register_flow(NodeName, Module, FlowModule) ->
-    axb_flow_mgr:register_flow(?REF(NodeName, Module), FlowModule).
-
-
-%%
-%%  Unregister the flow from this manager.
-%%
-unregister_flow(NodeName, Module, FlowModule) ->
-    axb_flow_mgr:unregister_flow(?REF(NodeName, Module), FlowModule).
 
 
 
@@ -97,6 +80,14 @@ init({NodeName, Module, Args}) ->
         {stop, Reason} ->
             {stop, Reason}
     end.
+
+
+%%
+%%
+%%
+flow_changed(FlowModule, Online, State = #state{node = NodeName, mod = Module}) ->
+    lager:info("Flow ~p status changed to online=~p in ~p:~p", [Module, Online, FlowModule, NodeName]),
+    {ok, State}.
 
 
 %%

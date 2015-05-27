@@ -87,7 +87,8 @@ init({NodeName, FlowMgrModule, FlowModule, Opts}) ->
         "Starting flow supervisor for node=~p, flow_mgr=~p, flow=~p with child_spec=~p",
         [NodeName, FlowMgrModule, FlowMgrModule, ChildSpec]
     ),
-    ok = axb_flow_pool_mgr:register_flow(NodeName, FlowMgrModule, FlowModule),
+    Domain = proplists:get_value(domain, Opts, undefined),
+    ok = axb_flow_mgr:register_flow(NodeName, FlowMgrModule, FlowModule, Domain, false),
     {ok, {{simple_one_for_one, 100, 1000}, [ChildSpec]}}.
 
 

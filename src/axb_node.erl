@@ -238,7 +238,7 @@ starting_internal(timeout, StateData = #state{name = NodeName, adapters = Adapte
 starting_flows(timeout, StateData = #state{name = NodeName, flow_mgrs = FlowMgrs}) ->
     lager:debug("Node ~p is starting flow managers.", [NodeName]),
     StartFlowMgrs = fun (#flow_mgr{mod = FlowMgrModule}) ->
-        ok = axb_flow_mgr:flows_online(NodeName, FlowMgrModule, all, true)
+        ok = axb_flow_mgr:flow_online(NodeName, FlowMgrModule, all, true)
     end,
     ok = lists:foreach(StartFlowMgrs, FlowMgrs),
     {next_state, starting_external, StateData, 0}.

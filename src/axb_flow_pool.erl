@@ -24,7 +24,7 @@
 -export([start_link/4]).
 -export([init/1]).
 
--define(REF(NodeName), {via, gproc, {n, l, {?MODULE, NodeName}}}).
+-define(REF(NodeName, Module), {via, gproc, {n, l, {?MODULE, NodeName, Module}}}).
 
 
 %%% ============================================================================
@@ -62,7 +62,7 @@
 %%  Start this flow supervisor (its root supervisor).
 %%
 start_link(NodeName, Module, Args, Opts) ->
-    supervisor:start_link(?REF(NodeName), ?MODULE, {NodeName, Module, Args, Opts}).
+    supervisor:start_link(?REF(NodeName, Module), ?MODULE, {NodeName, Module, Args, Opts}).
 
 
 

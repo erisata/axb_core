@@ -147,18 +147,27 @@ start_sup(StartFun, Opts) ->
     {ok, FlowId, RouteId} = resolve_ids(Opts),
     {ok, ClientRef} = resolve_client_ref(Opts),
     EnrichedOpts = [{flow_id, FlowId}, {route_id, RouteId}, {client, ClientRef} | Opts],
-    {ok, _} = StartFun(EnrichedOpts),
-    {ok, FlowId}.
+    case StartFun(EnrichedOpts) of
+        {ok, _} ->
+            {ok, FlowId};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 
 %%
 %%  Start link.
 %%
-start_link(NodeName, _FlowMgrModule, FlowModule, Args, Opts) ->
-    {ok, FlowId, RouteId} = resolve_ids(Opts),
-    {ok, ClientRef} = resolve_client_ref(Opts),
-    % TODO: notify flow mgr.
-    gen_fsm:start_link(?REF(FlowId), ?MODULE, {NodeName, FlowModule, Args, FlowId, RouteId, ClientRef}, Opts).
+start_link(NodeName, FlowMgrModule, FlowModule, FlowArgs, Opts) ->
+    case axb_flow_mgr:flow_online(NodeName, FlowMgrModule, FlowModule) of
+        true ->
+            {ok, FlowId, RouteId} = resolve_ids(Opts),
+            {ok, ClientRef} = resolve_client_ref(Opts),
+            Args = {NodeName, FlowModule, FlowArgs, FlowId, RouteId, ClientRef},
+            gen_fsm:start_link(?REF(FlowId), ?MODULE, Args, Opts);
+        false ->
+            {error, flow_offline}
+    end.
 
 
 %% TODO: Delegates for all FSM functions.

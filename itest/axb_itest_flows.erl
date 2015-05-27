@@ -48,7 +48,7 @@ init(empty) ->
 
 init(single) ->
     {ok, [
-        {axb_itest_flow, {}}
+        {axb_itest_flow, {d1}}
     ]}.
 
 %%

@@ -265,6 +265,16 @@ test_flow_pool(_Config) ->
     %
     % Start some supervised flows.
     {ok, saved} = axb_itest_flow:perform(msg),
+    %
+    % Make flow offline by domain.
+    ok = axb_flow_mgr:flow_online(Node, axb_itest_flows, d1, false),
+    {error, flow_offline} = axb_itest_flow:perform(msg),
+    %
+    % Make flow online by its name.
+    ok = axb_flow_mgr:flow_online(Node, axb_itest_flows, axb_itest_flow, true),
+    {ok, saved} = axb_itest_flow:perform(msg),
+    ok = unlink_kill(FlowMgrPid),
+    ok = unlink_kill(NodePid),
     ok.
 
 
