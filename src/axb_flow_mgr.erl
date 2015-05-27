@@ -360,8 +360,9 @@ have_all_deps(#state{flows = Flows}) ->
 %%
 %%  Determine flow_mgr's status.
 %%
-flow_status(#flow{pid = undefined})            -> down;
-flow_status(#flow{pid = Pid}) when is_pid(Pid) -> running.
+flow_status(#flow{pid = undefined})                            -> down;
+flow_status(#flow{pid = Pid, online = true }) when is_pid(Pid) -> online;
+flow_status(#flow{pid = Pid, online = false}) when is_pid(Pid) -> offline.
 
 
 %%
