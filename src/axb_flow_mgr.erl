@@ -256,7 +256,6 @@ handle_info({'EXIT', FromPid, Reason}, StateName, StateData) when is_pid(FromPid
         false ->
             case Reason of
                 normal ->
-                    lager:debug("Linked process ~p terminated normally.", [FromPid]),
                     {next_state, StateName, StateData};
                 _ ->
                     lager:warning("Linked process ~p terminated, exiting with reason ~p.", [FromPid, Reason]),

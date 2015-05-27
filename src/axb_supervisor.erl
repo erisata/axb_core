@@ -23,7 +23,7 @@
 -module(axb_supervisor).
 -behaviour(supervisor).
 -compile([{parse_transform, lager_transform}]).
--export([start_link/3, start_child/1, stop_child/1]).
+-export([start_link/3, start_child/2, stop_child/2]).
 -export([init/1]).
 
 %%% ============================================================================
@@ -49,20 +49,20 @@
 %%
 %%
 start_link(Name, Module, Args) ->
-    supervisor:start_link(Name, Module, {Module, Args}).
+    supervisor:start_link(Name, ?MODULE, {Module, Args}).
 
 
 %%
 %%  Start or restart a child by given specification.
 %%
-start_child({ChildId, _StartFunc, _Restart, _Shutdown, _Type, _Modules} = StartSpec) ->
-    case supervisor:start_child(?MODULE, StartSpec) of
+start_child(Name, {ChildId, _StartFunc, _Restart, _Shutdown, _Type, _Modules} = StartSpec) ->
+    case supervisor:start_child(Name, StartSpec) of
         {ok, _Child} ->
             ok;
         {error, {already_started, _Child}} ->
             ok;
         {error, already_present} ->
-            {ok, _Child} = supervisor:restart_child(?MODULE, ChildId),
+            {ok, _Child} = supervisor:restart_child(Name, ChildId),
             ok
     end.
 
@@ -70,8 +70,8 @@ start_child({ChildId, _StartFunc, _Restart, _Shutdown, _Type, _Modules} = StartS
 %%
 %%  Stop the given child, if exists.
 %%
-stop_child({ChildId, _StartFunc, _Restart, _Shutdown, _Type, _Modules}) ->
-    case supervisor:terminate_child(?MODULE, ChildId) of
+stop_child(Name, {ChildId, _StartFunc, _Restart, _Shutdown, _Type, _Modules}) ->
+    case supervisor:terminate_child(Name, ChildId) of
         ok ->
             ok;
         {error, not_found} ->
