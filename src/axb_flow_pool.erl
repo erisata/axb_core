@@ -37,11 +37,12 @@
 -callback init(
         Args    :: term()
     ) ->
-        {ok, [FlowSupSpec]}
+        {ok, [Domain], [FlowSupSpec]}
     when
         FlowSupSpec :: {FlowModule, FlowArgs} | FlowModule,
         FlowModule  :: module(),
-        FlowArgs    :: term().
+        FlowArgs    :: term(),
+        Domain      :: atom().
 
 
 %%

@@ -44,10 +44,10 @@ start_link(Mode) ->
 %%  Initialize it.
 %%
 init(empty) ->
-    {ok, []};
+    {ok, [], []};
 
 init(single) ->
-    {ok, [
+    {ok, [d1, d2], [
         {axb_itest_flow, {d1}}
     ]}.
 

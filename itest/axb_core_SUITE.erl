@@ -26,7 +26,8 @@
     test_adapter_domains/1,
     test_flow_mgr_registration/1,
     test_flow_pool/1,
-    test_info/1
+    test_info/1,
+    test_stats/1
 ]).
 -include_lib("common_test/include/ct.hrl").
 -include_lib("axb_core/include/axb.hrl").
@@ -41,7 +42,8 @@ all() ->
         test_adapter_domains,
         test_flow_mgr_registration,
         test_flow_pool,
-        test_info
+        test_info,
+        test_stats
     ].
 
 
@@ -341,6 +343,50 @@ test_info(_Config) ->
             ]}
         ]}
     ]} = axb:info(flows),
+    ok = unlink_kill(AdapterPid),
+    ok = unlink_kill(FlowMgrPid),
+    ok = unlink_kill(NodePid),
+    timer:sleep(50),
+    ok.
+
+
+%%
+%%  Check, if statistics are collected.
+%%
+test_stats(_Config) ->
+    lager:debug("Testcase test_stats - start"),
+    {ok, NodePid} = axb_itest_node:start_link(both),
+    {ok, FlowMgrPid} = axb_itest_flows:start_link(single),
+    {ok, AdapterPid} = axb_itest_adapter:start_link(single),
+    timer:sleep(50),
+    {ok, msg1} = axb_itest_adapter:send_message(msg1),
+    {ok, msg2} = axb_itest_adapter:message_received(msg2),
+    %
+    % Check if stats created.
+    {ok, StatNames} = axb_stats:info(list),
+    true = length(StatNames) > 0,
+    true = lists:member([axb, axb_itest, ad], StatNames),
+    true = lists:member([axb, axb_itest, ad, axb_itest_adapter], StatNames),
+    true = lists:member([axb, axb_itest, ad, axb_itest_adapter, main], StatNames),
+    true = lists:member([axb, axb_itest, ad, axb_itest_adapter, main, internal], StatNames),
+    true = lists:member([axb, axb_itest, ad, axb_itest_adapter, main, internal, send_message, epm], StatNames),
+    true = lists:member([axb, axb_itest, ad, axb_itest_adapter, main, internal, send_message, dur], StatNames),
+    true = lists:member([axb, axb_itest, ad, axb_itest_adapter, main, external], StatNames),
+    true = lists:member([axb, axb_itest, ad, axb_itest_adapter, main, external, message_received, epm], StatNames),
+    true = lists:member([axb, axb_itest, ad, axb_itest_adapter, main, external, message_received, dur], StatNames),
+    true = lists:member([axb, axb_itest, fm], StatNames),
+    true = lists:member([axb, axb_itest, fm, axb_itest_flows], StatNames),
+    true = lists:member([axb, axb_itest, fm, axb_itest_flows, d1], StatNames),
+    true = lists:member([axb, axb_itest, fm, axb_itest_flows, d1, axb_itest_flow, epm], StatNames),
+    true = lists:member([axb, axb_itest, fm, axb_itest_flows, d1, axb_itest_flow, dur], StatNames),
+    %
+    % Update some stats.
+    {ok, [{count, C1}]} = exometer:get_value([axb, axb_itest, fm, axb_itest_flows, d1, axb_itest_flow, epm], count),
+    {ok, saved} = axb_itest_flow:perform(msg),
+    {ok, [{count, C2}]} = exometer:get_value([axb, axb_itest, fm, axb_itest_flows, d1, axb_itest_flow, epm], count),
+    true = C2 > C1,
+    %
+    % Cleanup.
     ok = unlink_kill(AdapterPid),
     ok = unlink_kill(FlowMgrPid),
     ok = unlink_kill(NodePid),

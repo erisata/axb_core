@@ -70,13 +70,13 @@ register_flow_sup(NodeName, Module, FlowModule, FlowArgs) ->
 %%
 init({NodeName, Module, Args}) ->
     case Module:init(Args) of
-        {ok, FlowSupSpecs} ->
+        {ok, FlowDomains, FlowSupSpecs} ->
             NormalizedSpecs = lists:map(fun normalize_flow_sup_spec/1, FlowSupSpecs),
             lager:debug("Node ~p flow manager ~p starting initial flows asynchronously.", [NodeName, Module]),
             _StartupPids = [ spawn_link(start_flow_sup_fun(NodeName, Module, FM, FA)) || {FM, FA} <- NormalizedSpecs ],
             InitialFlows = [ M || {M, _A} <- NormalizedSpecs ],
             State = #state{node = NodeName, mod = Module},
-            {ok, InitialFlows, State};
+            {ok, FlowDomains, InitialFlows, State};
         {stop, Reason} ->
             {stop, Reason}
     end.

@@ -20,7 +20,7 @@
 -module(axb_flow_sup_sofo).
 -compile([{parse_transform, lager_transform}]).
 -behaviour(supervisor).
--export([sup_start_spec/4, start_link/4, start_flow/5]).
+-export([sup_start_spec/5, start_link/5, start_flow/5]).
 -export([init/1]).
 
 -define(REF(NodeName, FlowMgrModule, FlowModule), {via, gproc, {n, l, {?MODULE, NodeName, FlowMgrModule, FlowModule}}}).
@@ -41,10 +41,10 @@
 %%      `modules`
 %%      :   ...
 %%
-sup_start_spec(NodeName, FlowMgrModule, FlowModule, Opts) ->
+sup_start_spec(NodeName, FlowMgrModule, FlowDomain, FlowModule, Opts) ->
     Spec = {
         FlowModule,
-        {?MODULE, start_link, [NodeName, FlowMgrModule, FlowModule, Opts]},
+        {?MODULE, start_link, [NodeName, FlowMgrModule, FlowDomain, FlowModule, Opts]},
         permanent, brutal_kill, supervisor, [?MODULE, FlowModule]
     },
     {ok, Spec}.
@@ -53,8 +53,8 @@ sup_start_spec(NodeName, FlowMgrModule, FlowModule, Opts) ->
 %%
 %%
 %%
-start_link(NodeName, FlowMgrModule, FlowModule, Opts) ->
-    Args = {NodeName, FlowMgrModule, FlowModule, Opts},
+start_link(NodeName, FlowMgrModule, FlowDomain, FlowModule, Opts) ->
+    Args = {NodeName, FlowMgrModule, FlowDomain, FlowModule, Opts},
     supervisor:start_link(?REF(NodeName, FlowMgrModule, FlowModule), ?MODULE, Args).
 
 
@@ -76,8 +76,8 @@ start_flow(NodeName, FlowMgrModule, FlowModule, FlowArgs, FlowOpts) ->
 %%
 %%  Supervisor initialization.
 %%
-init({NodeName, FlowMgrModule, FlowModule, Opts}) ->
-    DefaultMFA = {axb_flow, start_link, [NodeName, FlowMgrModule, FlowModule]},
+init({NodeName, FlowMgrModule, FlowDomain, FlowModule, Opts}) ->
+    DefaultMFA = {axb_flow, start_link, [NodeName, FlowMgrModule, FlowDomain, FlowModule]},
     DefaultMods = [axb_flow, FlowMgrModule],
     FlowMFA = proplists:get_value(mfa, Opts, DefaultMFA),
     FlowMods = proplists:get_value(modules, Opts, DefaultMods),
@@ -87,8 +87,7 @@ init({NodeName, FlowMgrModule, FlowModule, Opts}) ->
         "Starting flow supervisor for node=~p, flow_mgr=~p, flow=~p with child_spec=~p",
         [NodeName, FlowMgrModule, FlowMgrModule, ChildSpec]
     ),
-    Domain = proplists:get_value(domain, Opts, undefined),
-    ok = axb_flow_mgr:register_flow(NodeName, FlowMgrModule, FlowModule, Domain, false),
+    ok = axb_flow_mgr:register_flow(NodeName, FlowMgrModule, FlowDomain, FlowModule, false),
     {ok, {{simple_one_for_one, 100, 1000}, [ChildSpec]}}.
 
 

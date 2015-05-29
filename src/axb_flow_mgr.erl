@@ -41,14 +41,14 @@
 -callback init(
         Args :: term()
     ) ->
-        {ok, [FlowToWait :: module()]}.
+        {ok, [Domain :: atom()], [FlowToWait :: module()], State :: term()}.
 
 
 %%
 %%  This callback notifies the flow manager about changed flow states.
 %%
 -callback flow_changed(
-        FlowModile  :: module(),
+        FlowModule  :: module(),
         Online      :: boolean(),
         State       :: term()
     ) ->
@@ -96,9 +96,9 @@ info(NodeName, Module, What) ->
 %%  Register new flow to this manager.
 %%  This function must be called from the registering process.
 %%
-register_flow(NodeName, Module, FlowModule, Domain, Online) ->
+register_flow(NodeName, Module, FlowDomain, FlowModule, Online) ->
     FlowPid = self(),
-    gen_fsm:sync_send_all_state_event(?REF(NodeName, Module), {register_flow, FlowModule, Domain, Online, FlowPid}).
+    gen_fsm:sync_send_all_state_event(?REF(NodeName, Module), {register_flow, FlowDomain, FlowModule, Online, FlowPid}).
 
 
 
@@ -159,7 +159,8 @@ flow_online(NodeName, Module, FlowModule) ->
     mod     :: module(),    %% User-defined module for the flow manager (name).
     cbm     :: module(),    %% Callback module for the flow manager implementation.
     cbs     :: term(),      %% Callback state for the flow manager implementation.
-    flows   :: [#flow{}]
+    domains :: [atom()],    %% Domains, supported in this flow manager.
+    flows   :: [#flow{}]    %% Flows, managed by this manager.
 }).
 
 
@@ -175,14 +176,15 @@ flow_online(NodeName, Module, FlowModule) ->
 init({NodeName, Module, CBModule, Args}) ->
     erlang:process_flag(trap_exit, true),
     case CBModule:init(Args) of
-        {ok, FlowsToWait, CBState} ->
+        {ok, Domains, FlowsToWait, CBState} ->
             Flows = [ #flow{mod = F, pid = undefined, domain = undefined, online = false} || F <- FlowsToWait ],
             StateData = #state{
-                node = NodeName,
-                mod = Module,
-                cbm = CBModule,
-                cbs = CBState,
-                flows = Flows
+                node    = NodeName,
+                mod     = Module,
+                cbm     = CBModule,
+                cbs     = CBState,
+                domains = Domains,
+                flows   = Flows
             },
             ok = publish_attrs(StateData),
             {ok, NewStateData} = notify_changes(Flows, StateData),
@@ -209,15 +211,17 @@ waiting(timeout, StateData = #state{flows = Flows}) ->
 %%
 %%  The `ready` state.
 %%
-ready(timeout, StateData = #state{node = NodeName, mod = Module}) ->
+ready(timeout, StateData = #state{node = NodeName, mod = Module, domains = Domains}) ->
     ok = axb_node:register_flow_mgr(NodeName, Module, []),
+    ok = axb_stats:flow_mgr_registered(NodeName, Module, Domains),
     lager:debug("Flow manager ~p is ready at node ~p.", [Module, NodeName]),
     {next_state, ready, StateData}.
 
 
-handle_sync_event({register_flow, FlowModule, Domain, Online, FlowPid}, _From, StateName, StateData) ->
-    #state{flows = Flows} = StateData,
-    NewFlow = #flow{mod = FlowModule, pid = FlowPid, domain = Domain, online = Online},
+handle_sync_event({register_flow, FlowDomain, FlowModule, Online, FlowPid}, _From, StateName, StateData) ->
+    #state{flows = Flows, domains = Domains} = StateData,
+    true = lists:member(FlowDomain, Domains),
+    NewFlow = #flow{mod = FlowModule, pid = FlowPid, domain = FlowDomain, online = Online},
     Register = fun (NewFlows) ->
         true = erlang:link(FlowPid),
         NewStateData = StateData#state{flows = NewFlows},

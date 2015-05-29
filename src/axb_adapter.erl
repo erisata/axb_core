@@ -131,11 +131,24 @@ domain_online(NodeName, Module, DomainName, Direction) ->
 command(NodeName, Module, Domain, Direction, CommandName, CommandFun) ->
     case domain_online(NodeName, Module, Domain, Direction) of
         true ->
-            lager:debug("Executing ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, Module, Domain]),
-            % TODO: Add metrics here.
             % TODO: Generate CTX_ID here, if the calling process does not have one.
-            CommandFun();
+            lager:debug("Executing ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, Module, Domain]),
+            try timer:tc(CommandFun) of
+                {DurationUS, Result} ->
+                    ok = axb_stats:adapter_command_executed(NodeName, Module, Domain, Direction, CommandName, DurationUS),
+                    lager:debug("Executing ~p command ~p done in ~pms", [Direction, CommandName, DurationUS / 1000]),
+                    Result
+            catch
+                ErrType:ErrCode ->
+                    ok = axb_stats:adapter_command_executed(NodeName, Module, Domain, Direction, CommandName, error),
+                    lager:error(
+                        "Executing ~p command ~p failed with ~p:~p, trace=~p",
+                        [Direction, CommandName, ErrType, ErrCode, erlang:get_stacktrace()]
+                    ),
+                    {error, {ErrType, ErrCode}}
+            end;
         false ->
+            ok = axb_stats:adapter_command_executed(NodeName, Module, Domain, Direction, CommandName, error),
             lager:warning("Dropping ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, Module, Domain]),
             {error, domain_offline}
     end.
@@ -164,6 +177,7 @@ init({NodeName, Module, Args}) ->
             },
             true = gproc:set_value(?REG(NodeName, Module), Domains),
             ok = axb_node:register_adapter(NodeName, Module, []),
+            ok = axb_stats:adapter_registered(NodeName, Module, DomainNames),
             {ok, State}
     end.
 

@@ -23,6 +23,7 @@
         stdlib,
         sasl,
         lager,
-        gproc
+        gproc,
+        exometer_core
     ]}
 ]}.

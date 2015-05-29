@@ -27,9 +27,6 @@
 -export([sup_start_spec/1]).
 
 
-% TODO: Domains.
-
-
 %%% ============================================================================
 %%% Public API.
 %%% ============================================================================
@@ -56,7 +53,7 @@ perform(Message) ->
 %%  Return start specification for the corresponding flow supervisor.
 %%
 sup_start_spec({Domain}) ->
-    axb_flow_sup_sofo:sup_start_spec(axb_itest_node:name(), axb_itest_flows, ?MODULE, [{domain, Domain}]).
+    axb_flow_sup_sofo:sup_start_spec(axb_itest_node:name(), axb_itest_flows, Domain, ?MODULE, []).
 
 
 
