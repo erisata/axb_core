@@ -21,7 +21,7 @@
 -module(axb_itest_adapter).
 -behaviour(axb_adapter).
 -compile([{parse_transform, lager_transform}]).
--export([start_link/1, send_message/1, message_received/1]).
+-export([start_link/1, send_message/1, message_received/1, test_crash/0]).
 -export([provided_domains/1, domain_changed/3]).
 
 
@@ -50,6 +50,15 @@ send_message(SomeArg) ->
 message_received(SomeArg) ->
     axb_adapter:command(axb_itest_node:name(), ?MODULE, main, external, message_received, fun () ->
         {ok, SomeArg}
+    end).
+
+
+%%
+%%  Check, if crash is handled properly.
+%%
+test_crash() ->
+    axb_adapter:command(axb_itest_node:name(), ?MODULE, main, internal, test_crash, fun () ->
+        ok = os:timestamp()
     end).
 
 

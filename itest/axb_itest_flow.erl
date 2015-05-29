@@ -21,7 +21,7 @@
 -behaviour(axb_flow).
 -behaviour(axb_flow_supervised).
 -compile([{parse_transform, lager_transform}]).
--export([perform/1]).
+-export([perform/1, test_crash/1]).
 -export([init/1, handle_event/3, handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
 -export([transforming/2, saving/2, responding/2]).
 -export([sup_start_spec/1]).
@@ -36,10 +36,22 @@
 %%  This is an alternative for the `start_link/1` function.
 %%
 perform(Message) ->
-    case axb_flow_sup_sofo:start_flow(axb_itest_node:name(), axb_itest_flows, ?MODULE, {Message}, []) of
+    case axb_flow_sup_sofo:start_flow(axb_itest_node:name(), axb_itest_flows, ?MODULE, {perform, Message}, []) of
         {ok, FlowId} ->
-            lager:debug("Flow ~p started, flowId=~p", [?MODULE, FlowId]),
+            lager:debug("Flow ~p:perform/1 started, flowId=~p", [?MODULE, FlowId]),
             axb_flow:wait_response(FlowId, 1000);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+%%
+%%  Trying to check, how the crashed are handled.
+%%
+test_crash(Caller) ->
+    case axb_flow_sup_sofo:start_flow(axb_itest_node:name(), axb_itest_flows, ?MODULE, {test_crash, Caller}, []) of
+        {ok, FlowId} ->
+            lager:debug("Flow ~p:test_crash/1 started, flowId=~p", [?MODULE, FlowId]),
+            ok;
         {error, Reason} ->
             {error, Reason}
     end.
@@ -73,10 +85,13 @@ sup_start_spec({Domain}) ->
 %%
 %%
 %%
-init({Message}) ->
+init({perform, Message}) ->
     lager:debug("Initialized, param=~p", [Message]),
-    {ok, transforming, #state{message = Message}, 0}.
+    {ok, transforming, #state{message = Message}, 0};
 
+init({test_crash, Caller}) ->
+    gen_fsm:send_event(self(), {test_crash, Caller}),
+    {ok, transforming, #state{message = test_crash}}.
 
 
 %%
@@ -84,6 +99,13 @@ init({Message}) ->
 %%
 transforming(timeout, StateData) ->
     lager:debug("Transforming"),
+    {next_state, saving, StateData, 0};
+
+transforming({test_crash, Caller}, StateData) ->
+    Ref = erlang:make_ref(),
+    Caller ! {custom_flow_call, self(), Ref},
+    lager:debug("Performing potential crash, caller=~p, self=~p, ref=~p", [Caller, self(), Ref]),
+    ok = receive {custom_flow_resp, Ref, Resp} -> Resp after 1000 -> timeout end,
     {next_state, saving, StateData, 0}.
 
 
@@ -104,24 +126,38 @@ responding(timeout, StateData) ->
     {stop, normal, StateData}.
 
 
+%%
+%%
+%%
 handle_event(_Event, StateName, StateData) ->
     {next_state, StateName, StateData}.
 
 
+%%
+%%
+%%
 handle_sync_event(_Event, _From, StateName, StateData) ->
     {reply, undefined, StateName, StateData}.
 
 
+%%
+%%
+%%
 handle_info(_Info, StateName, StateData) ->
     {next_state, StateName, StateData}.
 
 
+%%
+%%
+%%
 terminate(_Reason, _StateName, _StateData) ->
     ok.
 
+
+%%
+%%
+%%
 code_change(_OldVsn, StateName, StateData, _Extra) ->
     {ok, StateName, StateData}.
-
-
 
 

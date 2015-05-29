@@ -17,8 +17,6 @@
 %%%
 %%% This is a generic behaviour for processing a message in the ESB.
 %%%
-%%% TODO: Report crash statistics, register the flow with the manager.
-%%%
 -module(axb_flow).
 -behaviour(gen_fsm).
 -compile([{parse_transform, lager_transform}]).
@@ -266,6 +264,7 @@ related_id(Name, Value) ->
 %%
 %%
 init({NodeName, MgrModule, Domain, Module, Args, FlowId, RouteId, ClientRef}) ->
+    ok = axb_flow_mgr:flow_started(NodeName, MgrModule, Domain, Module, []),
     erlang:put(?FLOW_ID, FlowId),
     erlang:put(?ROUTE_ID, RouteId),
     erlang:put(?CLIENT_REF, ClientRef),

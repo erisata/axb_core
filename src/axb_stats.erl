@@ -28,6 +28,7 @@
     adapter_registered/3,
     adapter_command_executed/6,
     flow_mgr_registered/3,
+    flow_registered/4,
     flow_executed/5
 ]).
 
@@ -126,6 +127,15 @@ flow_mgr_registered(NodeName, FlowMgrModule, Domains) ->
             []
         )
     end, Domains).
+
+
+%%
+%%
+%%
+flow_registered(NodeName, FlowMgrModule, Domain, FlowModule) ->
+    ok = exometer:ensure([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, err], spiral, []),
+    ok = exometer:ensure([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, epm], spiral, []),
+    ok = exometer:ensure([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, dur], duration, []).
 
 
 %%

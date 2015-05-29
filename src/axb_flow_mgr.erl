@@ -20,7 +20,7 @@
 -module(axb_flow_mgr).
 -behaviour(gen_fsm).
 -compile([{parse_transform, lager_transform}]).
--export([start_link/5, info/3, register_flow/5, unregister_flow/3, flow_online/4, flow_online/3]).
+-export([start_link/5, info/3, register_flow/5, unregister_flow/3, flow_started/5, flow_online/4, flow_online/3]).
 -export([init/1, handle_sync_event/4, handle_event/3, handle_info/3, terminate/3, code_change/4]).
 -export([waiting/2, ready/2]).
 
@@ -110,6 +110,17 @@ unregister_flow(NodeName, Module, FlowModule) ->
 
 
 %%
+%%  Flows call this function to report them started.
+%%  This is used for accounting them.
+%%
+flow_started(NodeName, Module, FlowDomain, FlowModule, _Opts) ->
+    FlowPid = self(),
+    true = ets:insert_new(?MODULE, {FlowPid, NodeName, Module, FlowDomain, FlowModule}),
+    true = erlang:link(gproc:where(?REG(NodeName, Module))),
+    ok.
+
+
+%%
 %%  Change flow status for the specific flow manager.
 %%
 -spec flow_online(
@@ -175,6 +186,12 @@ flow_online(NodeName, Module, FlowModule) ->
 %%
 init({NodeName, Module, CBModule, Args}) ->
     erlang:process_flag(trap_exit, true),
+    case ets:info(?MODULE, name) of
+        undefined ->
+            ets:new(?MODULE, [set, public, named_table, {write_concurrency,true}, {read_concurrency, true}]);
+        _ ->
+            ok
+    end,
     case CBModule:init(Args) of
         {ok, Domains, FlowsToWait, CBState} ->
             Flows = [ #flow{mod = F, pid = undefined, domain = undefined, online = false} || F <- FlowsToWait ],
@@ -219,11 +236,12 @@ ready(timeout, StateData = #state{node = NodeName, mod = Module, domains = Domai
 
 
 handle_sync_event({register_flow, FlowDomain, FlowModule, Online, FlowPid}, _From, StateName, StateData) ->
-    #state{flows = Flows, domains = Domains} = StateData,
+    #state{node = NodeName, mod = Module, flows = Flows, domains = Domains} = StateData,
     true = lists:member(FlowDomain, Domains),
     NewFlow = #flow{mod = FlowModule, pid = FlowPid, domain = FlowDomain, online = Online},
     Register = fun (NewFlows) ->
         true = erlang:link(FlowPid),
+        ok = axb_stats:flow_registered(NodeName, Module, FlowDomain, FlowModule),
         NewStateData = StateData#state{flows = NewFlows},
         case StateName of
             waiting ->
@@ -308,7 +326,7 @@ handle_sync_event({flow_online, FlowNames, Online}, _From, StateName, StateData 
 %%
 %%  All-state asynchronous events.
 %%
-handle_event(_Request, StateName, StateData) ->
+handle_event(_Event, StateName, StateData) ->
     {next_state, StateName, StateData}.
 
 
@@ -317,20 +335,37 @@ handle_event(_Request, StateName, StateData) ->
 %%
 handle_info({'EXIT', FromPid, Reason}, StateName, StateData) when is_pid(FromPid) ->
     #state{
+        node = NodeName,
         flows = Flows
     } = StateData,
-    case lists:keyfind(FromPid, #flow.pid, Flows) of
-        Flow = #flow{mod = FlowModule} ->
-            lager:warning("Flow terminated, module=~p, pid=~p, reason=~p", [FlowModule, FromPid, Reason]),
-            NewFlows = lists:keyreplace(FlowModule, #flow.mod, Flows, Flow#flow{pid = undefined}),
-            {next_state, StateName, StateData#state{flows = NewFlows}};
-        false ->
+    case ets:lookup(?MODULE, FromPid) of
+        [{_FlowPid, NodeName, Module, FlowDomain, FlowModule}]->
             case Reason of
                 normal ->
                     {next_state, StateName, StateData};
                 _ ->
-                    lager:warning("Linked process ~p terminated, exiting with reason ~p.", [FromPid, Reason]),
-                    {stop, Reason, StateData}
+                    lager:error(
+                        "Flow ~p terminated with reason=~p at ~p:~p:~p",
+                        [FlowModule, Reason, NodeName, Module, FlowDomain]
+                    ),
+                    ok = axb_stats:flow_executed(NodeName, Module, FlowDomain, FlowModule, error),
+                    true = ets:delete(?MODULE, FromPid),
+                    {next_state, StateName, StateData}
+            end;
+        [] ->
+            case lists:keyfind(FromPid, #flow.pid, Flows) of
+                Flow = #flow{mod = FlowModule} ->
+                    lager:warning("Flow terminated, module=~p, pid=~p, reason=~p", [FlowModule, FromPid, Reason]),
+                    NewFlows = lists:keyreplace(FlowModule, #flow.mod, Flows, Flow#flow{pid = undefined}),
+                    {next_state, StateName, StateData#state{flows = NewFlows}};
+                false ->
+                    case Reason of
+                        normal ->
+                            {next_state, StateName, StateData};
+                        _ ->
+                            lager:warning("Linked process ~p terminated, exiting with reason ~p.", [FromPid, Reason]),
+                            {stop, Reason, StateData}
+                    end
             end
     end;
 

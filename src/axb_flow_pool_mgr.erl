@@ -17,10 +17,6 @@
 %%%
 %%% The manager process for the `axb_flow_mgr`.
 %%%
-%%% TODO: Implement flow monitor (in other process/module?).
-%%%      It will report flow crashes, maybe will perform
-%%%      restart back-pressure and suspending of flows.
-%%%
 -module(axb_flow_pool_mgr).
 -compile([{parse_transform, lager_transform}]).
 -behaviour(axb_flow_mgr).

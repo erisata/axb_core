@@ -381,10 +381,31 @@ test_stats(_Config) ->
     true = lists:member([axb, axb_itest, fm, axb_itest_flows, d1, axb_itest_flow, dur], StatNames),
     %
     % Update some stats.
-    {ok, [{count, C1}]} = exometer:get_value([axb, axb_itest, fm, axb_itest_flows, d1, axb_itest_flow, epm], count),
+    {ok, [{count, C1a}, {one, _}]} = exometer:get_value([axb, axb_itest, fm]),
+    {ok, [{count, C1b}]} = exometer:get_value([axb, axb_itest, fm, axb_itest_flows, d1, axb_itest_flow, epm], count),
     {ok, saved} = axb_itest_flow:perform(msg),
-    {ok, [{count, C2}]} = exometer:get_value([axb, axb_itest, fm, axb_itest_flows, d1, axb_itest_flow, epm], count),
-    true = C2 > C1,
+    {ok, [{count, C2a}, {one, _}]} = exometer:get_value([axb, axb_itest, fm]),
+    {ok, [{count, C2b}]} = exometer:get_value([axb, axb_itest, fm, axb_itest_flows, d1, axb_itest_flow, epm], count),
+    true = C2a > C1a,
+    true = C2b > C1b,
+    %
+    % Make some crashes for flows.
+    {ok, [{count, E1}]} = exometer:get_value([axb, axb_itest, fm, axb_itest_flows, d1, axb_itest_flow, err], count),
+    ok = axb_itest_flow:test_crash(self()),
+    ok = receive {custom_flow_call, From1, Ref1} -> From1 ! {custom_flow_resp, Ref1, error}, ok after 1000 -> timeout end,
+    ok = receive {custom_flow_call, From2, Ref2} -> From2 ! {custom_flow_resp, Ref2, ok},    ok after 1000 -> timeout end,
+    timer:sleep(50),
+    {ok, [{count, E2}]} = exometer:get_value([axb, axb_itest, fm, axb_itest_flows, d1, axb_itest_flow, err], count),
+    E2 = E1 + 1,
+    %
+    % Make some crashes for adapter commands.
+    AE1 = case exometer:get_value([axb, axb_itest, ad, axb_itest_adapter, main, internal, test_crash, err], count) of
+        {error, not_found}    -> 0;
+        {ok, [{count, AE1t}]} -> AE1t
+    end,
+    {error, _Reason} = axb_itest_adapter:test_crash(),
+    {ok, [{count, AE2}]} = exometer:get_value([axb, axb_itest, ad, axb_itest_adapter, main, internal, test_crash, err], count),
+    AE2 = AE1 + 1,
     %
     % Cleanup.
     ok = unlink_kill(AdapterPid),
