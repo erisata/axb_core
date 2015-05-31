@@ -26,6 +26,7 @@
     test_adapter_domains/1,
     test_flow_mgr_registration/1,
     test_flow_pool/1,
+    test_context_propagation/1,
     test_info/1,
     test_stats/1
 ]).
@@ -42,6 +43,7 @@ all() ->
         test_adapter_domains,
         test_flow_mgr_registration,
         test_flow_pool,
+        test_context_propagation,
         test_info,
         test_stats
     ].
@@ -287,6 +289,46 @@ test_flow_pool(_Config) ->
     ok = unlink_kill(NodePid),
     timer:sleep(50),
     ok.
+
+
+%%
+%%  Test, if context ids are propagated.
+%%
+test_context_propagation(_Config) ->
+    lager:debug("Testcase test_context_propagation - start"),
+    {ok, NodePid} = axb_itest_node:start_link(both),
+    {ok, FlowMgrPid} = axb_itest_flows:start_link(single),
+    {ok, AdapterPid} = axb_itest_adapter:start_link(single),
+    timer:sleep(50),
+    %
+    % Check, if flow generates own contexts, if started without it.
+    {ok, Ctx1} = axb_itest_flow:test_context(),
+    {ok, Ctx2} = axb_itest_flow:test_context(),
+    false = Ctx1 =:= Ctx2,
+    %
+    % Check, if flow uses context of the calling process.
+    Ctx = axb_context:ensure(),
+    {ok, Ctx3} = axb_itest_flow:test_context(),
+    {ok, Ctx4} = axb_itest_flow:test_context(),
+    Ctx = Ctx3 = Ctx4,
+    %
+    % Check, if context can be removed.
+    ok = axb_context:cleanup(),
+    {ok, Ctx5} = axb_itest_flow:test_context(),
+    false = Ctx =:= Ctx5,
+    %
+    % Check if adapter's command has a context defined, and it is reused by the flow.
+    {ok, Ctx6, Ctx6, Ctx6} = axb_itest_adapter:test_context_ext(),
+    false = Ctx6 =:= undefined,
+    %
+    % Cleanup.
+    ok = unlink_kill(AdapterPid),
+    ok = unlink_kill(FlowMgrPid),
+    ok = unlink_kill(NodePid),
+    timer:sleep(50),
+    ok.
+
+
 
 %%
 %%  Test, if axb info is returned correctly.

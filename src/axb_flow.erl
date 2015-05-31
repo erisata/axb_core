@@ -22,7 +22,7 @@
 %%%
 %%% Main features of this module:
 %%%
-%%%   * Creates or uses existing context identifiers (flowId, routeId) and
+%%%   * Creates or uses existing context identifiers (flowId, ctxId) and
 %%%     configures them to be accessible in the lager's logs.
 %%%   * Takes into account flow management commands, checks if the flow can
 %%%     be started, registers itself with the flow manager for accounting
@@ -35,13 +35,12 @@
 -behaviour(gen_fsm).
 -compile([{parse_transform, lager_transform}]).
 -export([start_sup/2, start_link/6, respond/1, respond/2, wait_response/2]).
--export([flow_id/0, route_id/0, client_ref/0, related_id/2]).
+-export([flow_id/0, ctx_id/0, client_ref/0, related_id/2]).
 -export([init/1, handle_event/3, handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
 -export([active/2, active/3]).
 
 -define(REF(FlowId), {via, gproc, {n, l, {?MODULE, FlowId}}}).
 -define(FLOW_ID,     'axb_flow$flow_id').
--define(ROUTE_ID,    'axb_flow$route_id').
 -define(CLIENT_REF,  'axb_flow$client_ref').
 -define(ADD_RELATED, 'axb_flow$add_related').
 -define(RESPONSE,    'axb_flow$response').
@@ -155,9 +154,9 @@
 %%  Start this flow under the specified supervisor.
 %%
 start_sup(StartFun, Opts) ->
-    {ok, FlowId, RouteId} = resolve_ids(Opts),
+    {ok, FlowId, CtxId} = resolve_ids(Opts),
     {ok, ClientRef} = resolve_client_ref(Opts),
-    EnrichedOpts = [{flow_id, FlowId}, {route_id, RouteId}, {client, ClientRef} | Opts],
+    EnrichedOpts = [{flow_id, FlowId}, {ctx_id, CtxId}, {client, ClientRef} | Opts],
     case StartFun(EnrichedOpts) of
         {ok, _} ->
             {ok, FlowId};
@@ -172,9 +171,9 @@ start_sup(StartFun, Opts) ->
 start_link(NodeName, MgrModule, Domain, Module, FlowArgs, Opts) ->
     case axb_flow_mgr:flow_online(NodeName, MgrModule, Module) of
         true ->
-            {ok, FlowId, RouteId} = resolve_ids(Opts),
+            {ok, FlowId, CtxId} = resolve_ids(Opts),
             {ok, ClientRef} = resolve_client_ref(Opts),
-            Args = {NodeName, MgrModule, Domain, Module, FlowArgs, FlowId, RouteId, ClientRef},
+            Args = {NodeName, MgrModule, Domain, Module, FlowArgs, FlowId, CtxId, ClientRef},
             gen_fsm:start_link(?REF(FlowId), ?MODULE, Args, Opts);
         false ->
             {error, flow_offline}
@@ -221,10 +220,10 @@ flow_id() ->
 
 
 %%
-%%  Returns ID of the route, in which the current flow participates.
+%%  Returns ID of the context, in which the current flow participates.
 %%
-route_id() ->
-    erlang:get(?ROUTE_ID).
+ctx_id() ->
+    axb_context:id().
 
 
 %%
@@ -259,7 +258,7 @@ related_id(Name, Value) ->
     sub_name    :: atom(),
     sub_data    :: term(),
     flow_id     :: term(),
-    route_id    :: term(),
+    ctx_id      :: term(),
     client_ref  :: term(),
     start_time  :: erlang:timestamp(),
     related     :: [{Name :: term(), RelatedId :: term()}]
@@ -274,15 +273,11 @@ related_id(Name, Value) ->
 %%
 %%  Initialization.
 %%
-init({NodeName, MgrModule, Domain, Module, Args, FlowId, RouteId, ClientRef}) ->
+init({NodeName, MgrModule, Domain, Module, Args, FlowId, CtxId, ClientRef}) ->
     ok = axb_flow_mgr:flow_started(NodeName, MgrModule, Domain, Module, []),
+    ThisCtxId = axb_context:setup(CtxId),
     erlang:put(?FLOW_ID, FlowId),
-    erlang:put(?ROUTE_ID, RouteId),
     erlang:put(?CLIENT_REF, ClientRef),
-    lager:md([
-        {flow,  FlowId},
-        {route, RouteId}
-    ]),
     StateData = #state{
         node = NodeName,
         mod = Module,
@@ -291,7 +286,7 @@ init({NodeName, MgrModule, Domain, Module, Args, FlowId, RouteId, ClientRef}) ->
         sub_name = undefined,
         sub_data = undefined,
         flow_id = FlowId,
-        route_id = RouteId,
+        ctx_id = ThisCtxId,
         client_ref = ClientRef,
         start_time = os:timestamp(),
         related = []
@@ -374,6 +369,10 @@ delegate(StateName, StateData, {Module, Function, Args}) ->
     ok = related_ids_setup(),
     Result = erlang:apply(Module, Function, Args),
     NewRelated = related_ids_collect(Related),
+    HandleStop = fun () ->
+        DurationUS = timer:now_diff(os:timestamp(), StartTime),
+        ok = axb_stats:flow_executed(NodeName, MgrModule, Domain, Module, DurationUS)
+    end,
     case {Function, Result} of
         {_, {ok, NextSubName, NewSubData}} ->
             {ok, StateName, update_sub(StateData, NextSubName, NewSubData, NewRelated)};
@@ -388,13 +387,14 @@ delegate(StateName, StateData, {Module, Function, Args}) ->
         {_, {next_state, NextSubName, NewSubData, TimeoutOrHibernate}} ->
             {next_state, StateName, update_sub(StateData, NextSubName, NewSubData, NewRelated), TimeoutOrHibernate};
         {_, {stop, Reason, Reply, NewSubData}} ->
-            DurationUS = timer:now_diff(os:timestamp(), StartTime),
-            ok = axb_stats:flow_executed(NodeName, MgrModule, Domain, Module, DurationUS),
+            ok = HandleStop(),
             {stop, Reason, Reply, update_sub(StateData, NewSubData, NewRelated)};
         {_, {stop, Reason, NewSubData}} ->
-            DurationUS = timer:now_diff(os:timestamp(), StartTime),
-            ok = axb_stats:flow_executed(NodeName, MgrModule, Domain, Module, DurationUS),
+            ok = HandleStop(),
             {stop, Reason, update_sub(StateData, NewSubData, NewRelated)};
+        {_, {stop, Reason}} ->
+            ok = HandleStop(),
+            {stop, Reason};
         {terminate, Any} ->
             Any
     end.
@@ -427,22 +427,22 @@ update_sub(StateData, NewSubData, NewRelated) ->
 resolve_ids(Opts) ->
     FlowId = case proplists:get_value(flow_id, Opts) of
         undefined ->
-            make_id();
+            axb:make_id();
         SuppliedFlowId ->
             SuppliedFlowId
     end,
-    RouteId = case proplists:get_value(route_id, Opts) of
+    CtxId = case proplists:get_value(ctx_id, Opts) of
         undefined ->
-            case route_id() of
+            case ctx_id() of
                 undefined ->
                     FlowId;
                 ClientFlowId ->
                     ClientFlowId
             end;
-        ClientRouteId ->
-            ClientRouteId
+        ClientCtxId ->
+            ClientCtxId
     end,
-    {ok, FlowId, RouteId}.
+    {ok, FlowId, CtxId}.
 
 
 %%
@@ -456,15 +456,6 @@ resolve_client_ref(Opts) ->
             SuppliedClientRef
     end,
     {ok, ClientRef}.
-
-
-%%
-%%  Create new unique ID.
-%%
-make_id() ->
-    IdTerm = {node(), erlang:now()},
-    SHA = crypto:hash(sha, erlang:term_to_binary(IdTerm)),
-    lists:flatten([io_lib:format("~2.16.0B", [X]) || X <- binary_to_list(SHA)]).
 
 
 %%

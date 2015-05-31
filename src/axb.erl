@@ -24,7 +24,7 @@
 %%%
 -module(axb).
 -compile([{parse_transform, lager_transform}]).
--export([info/0, info/1, status/0, status/1]).
+-export([info/0, info/1, status/0, status/1, make_id/0]).
 
 
 %%% =============================================================================
@@ -102,5 +102,14 @@ status() ->
 
 status(all) ->
     ok.
+
+
+%%
+%%  Create new unique ID.
+%%
+make_id() ->
+    IdTerm = {node(), erlang:now()},
+    SHA = crypto:hash(sha, erlang:term_to_binary(IdTerm)),
+    iolist_to_binary([io_lib:format("~2.16.0B", [X]) || X <- binary_to_list(SHA)]).
 
 

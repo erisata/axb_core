@@ -21,7 +21,7 @@
 -module(axb_itest_adapter).
 -behaviour(axb_adapter).
 -compile([{parse_transform, lager_transform}]).
--export([start_link/1, send_message/1, message_received/1, test_crash/0]).
+-export([start_link/1, send_message/1, message_received/1, test_crash/0, test_context_ext/0, test_context_int/0]).
 -export([provided_domains/1, domain_changed/3]).
 
 
@@ -59,6 +59,27 @@ message_received(SomeArg) ->
 test_crash() ->
     axb_adapter:command(axb_itest_node:name(), ?MODULE, main, internal, test_crash, fun () ->
         ok = os:timestamp()
+    end).
+
+
+%%
+%% Call flow within own context.
+%%
+test_context_ext() ->
+    axb_adapter:command(axb_itest_node:name(), ?MODULE, main, external, test_context_ext, fun () ->
+        CtxId1 = axb_context:id(),
+        {ok, CtxId2, CtxId3} = axb_itest_flow:test_context_adapter(),
+        {ok, CtxId1, CtxId2, CtxId3}
+    end).
+
+
+%%
+%%  This is called from the flow.
+%%
+test_context_int() ->
+    axb_adapter:command(axb_itest_node:name(), ?MODULE, main, internal, test_context_int, fun () ->
+        CtxId = axb_context:id(),
+        {ok, CtxId}
     end).
 
 

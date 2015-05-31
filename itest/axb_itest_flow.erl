@@ -21,7 +21,7 @@
 -behaviour(axb_flow).
 -behaviour(axb_flow_supervised).
 -compile([{parse_transform, lager_transform}]).
--export([perform/1, test_crash/1]).
+-export([perform/1, test_crash/1, test_context/0, test_context_adapter/0]).
 -export([init/1, handle_event/3, handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
 -export([transforming/2, saving/2, responding/2]).
 -export([sup_start_spec/1]).
@@ -55,6 +55,33 @@ test_crash(Caller) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+
+%%
+%%  Returns context id of the flow.
+%%
+test_context() ->
+    case axb_flow_sup_sofo:start_flow(axb_itest_node:name(), axb_itest_flows, ?MODULE, {test_context}, []) of
+        {ok, FlowId} ->
+            lager:debug("Flow ~p:test_context/0 started, flowId=~p", [?MODULE, FlowId]),
+            axb_flow:wait_response(FlowId, 1000);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+
+%%
+%%  Returns context id of the flow.
+%%
+test_context_adapter() ->
+    case axb_flow_sup_sofo:start_flow(axb_itest_node:name(), axb_itest_flows, ?MODULE, {test_context_adapter}, []) of
+        {ok, FlowId} ->
+            lager:debug("Flow ~p:test_context_adapter/0 started, flowId=~p", [?MODULE, FlowId]),
+            axb_flow:wait_response(FlowId, 1000);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
 
 
 %%% ============================================================================
@@ -91,7 +118,15 @@ init({perform, Message}) ->
 
 init({test_crash, Caller}) ->
     gen_fsm:send_event(self(), {test_crash, Caller}),
-    {ok, transforming, #state{message = test_crash}}.
+    {ok, transforming, #state{message = test_crash}};
+
+init({test_context}) ->
+    gen_fsm:send_event(self(), {test_context}),
+    {ok, transforming, #state{message = test_context}};
+
+init({test_context_adapter}) ->
+    gen_fsm:send_event(self(), {test_context_adapter}),
+    {ok, transforming, #state{message = test_context_adapter}}.
 
 
 %%
@@ -106,7 +141,17 @@ transforming({test_crash, Caller}, StateData) ->
     Caller ! {custom_flow_call, self(), Ref},
     lager:debug("Performing potential crash, caller=~p, self=~p, ref=~p", [Caller, self(), Ref]),
     ok = receive {custom_flow_resp, Ref, Resp} -> Resp after 1000 -> timeout end,
-    {next_state, saving, StateData, 0}.
+    {next_state, saving, StateData, 0};
+
+transforming({test_context}, StateData) ->
+    axb_flow:respond({ok, axb_flow:ctx_id()}),
+    {stop, normal, StateData};
+
+transforming({test_context_adapter}, StateData) ->
+    CtxId1 = axb_flow:ctx_id(),
+    {ok, CtxId2} = axb_itest_adapter:test_context_int(),
+    axb_flow:respond({ok, CtxId1, CtxId2}),
+    {stop, normal, StateData}.
 
 
 %%

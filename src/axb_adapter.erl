@@ -129,14 +129,15 @@ domain_online(NodeName, Module, DomainName, Direction) ->
 %%  This function uses gproc to perform this, therefore is not using the adapter process.
 %%
 command(NodeName, Module, Domain, Direction, CommandName, CommandFun) ->
+    {ok, CtxRef} = axb_context:push(),
     case domain_online(NodeName, Module, Domain, Direction) of
         true ->
-            % TODO: Generate CTX_ID here, if the calling process does not have one.
             lager:debug("Executing ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, Module, Domain]),
             try timer:tc(CommandFun) of
                 {DurationUS, Result} ->
                     ok = axb_stats:adapter_command_executed(NodeName, Module, Domain, Direction, CommandName, DurationUS),
                     lager:debug("Executing ~p command ~p done in ~pms", [Direction, CommandName, DurationUS / 1000]),
+                    ok = axb_context:pop(CtxRef),
                     Result
             catch
                 ErrType:ErrCode ->
@@ -145,11 +146,13 @@ command(NodeName, Module, Domain, Direction, CommandName, CommandFun) ->
                         "Executing ~p command ~p failed with ~p:~p, trace=~p",
                         [Direction, CommandName, ErrType, ErrCode, erlang:get_stacktrace()]
                     ),
+                    ok = axb_context:pop(CtxRef),
                     {error, {ErrType, ErrCode}}
             end;
         false ->
             ok = axb_stats:adapter_command_executed(NodeName, Module, Domain, Direction, CommandName, error),
             lager:warning("Dropping ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, Module, Domain]),
+            ok = axb_context:pop(CtxRef),
             {error, domain_offline}
     end.
 
