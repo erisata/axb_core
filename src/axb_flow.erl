@@ -16,6 +16,20 @@
 
 %%%
 %%% This is a generic behaviour for processing a message in the ESB.
+%%% This behaviour is based on `gen_fsm`. The implementing process
+%%% can use `gen_fsm` functions (like `send_event/2`) for accessing
+%%% the FSM directly.
+%%%
+%%% Main features of this module:
+%%%
+%%%   * Creates or uses existing context identifiers (flowId, routeId) and
+%%%     configures them to be accessible in the lager's logs.
+%%%   * Takes into account flow management commands, checks if the flow can
+%%%     be started, registers itself with the flow manager for accounting
+%%%     purposes.
+%%%   * Measures execution time and reports it to the stats module.
+%%%   * Provides a notion of a synchronous flow, where the client
+%%%     waits for the response from the newly started flow.
 %%%
 -module(axb_flow).
 -behaviour(gen_fsm).
@@ -38,7 +52,7 @@
 %%% ============================================================================
 
 %%
-%%
+%%  Invoked on FSM initialization.
 %%
 -callback init(
         Args :: term()
@@ -50,7 +64,7 @@
         ignore.
 
 %%
-%%
+%%  Handles incoming all-state event.
 %%
 -callback handle_event(
         Event       :: term(),
@@ -68,7 +82,7 @@
         Reason :: term().
 
 %%
-%%
+%%  Handles incoming synchronous all-state events.
 %%
 -callback handle_sync_event(
         Event       :: term(),
@@ -92,7 +106,7 @@
         Reason :: term().
 
 %%
-%%
+%%  Handles unknown messages.
 %%
 -callback handle_info(
         Info        :: term(),
@@ -111,7 +125,7 @@
 
 
 %%
-%%
+%%  Invoked on process termination, if the process traps exits.
 %%
 -callback terminate(
         Reason      :: term(),
@@ -121,7 +135,7 @@
 
 
 %%
-%%
+%%  Invoked on code upgrades.
 %%
 -callback code_change(
         OldVsn      :: term(),
@@ -167,11 +181,8 @@ start_link(NodeName, MgrModule, Domain, Module, FlowArgs, Opts) ->
     end.
 
 
-%% TODO: Delegates for all FSM functions.
-
-
 %%
-%%
+%%  Respond to the client in the case of synchronous flow.
 %%
 respond(Response) ->
     Client = erlang:get(?CLIENT_REF),
@@ -179,14 +190,14 @@ respond(Response) ->
 
 
 %%
-%%
+%%  Respond to the client in the case of synchronous flow.
 %%
 respond(Client, Response) ->
     Client ! {?RESPONSE, flow_id(), Response}.
 
 
 %%
-%%
+%%  Allows a client to wait for the asynchronous flow response.
 %%
 wait_response(FlowId, Timeout) ->
     receive
@@ -203,28 +214,28 @@ wait_response(FlowId, Timeout) ->
 %%% ============================================================================
 
 %%
-%%
+%%  Returns ID of the current flow.
 %%
 flow_id() ->
     erlang:get(?FLOW_ID).
 
 
 %%
-%%
+%%  Returns ID of the route, in which the current flow participates.
 %%
 route_id() ->
     erlang:get(?ROUTE_ID).
 
 
 %%
-%%
+%%  Reurns a reference to the process, started the flow.
 %%
 client_ref() ->
     erlang:get(?CLIENT_REF).
 
 
 %%
-%%
+%%  Registers new ID of something, related to the current flow.
 %%
 related_id(Name, Value) ->
     AddRelated = case erlang:get() of
@@ -261,7 +272,7 @@ related_id(Name, Value) ->
 %%% ============================================================================
 
 %%
-%%
+%%  Initialization.
 %%
 init({NodeName, MgrModule, Domain, Module, Args, FlowId, RouteId, ClientRef}) ->
     ok = axb_flow_mgr:flow_started(NodeName, MgrModule, Domain, Module, []),
@@ -289,7 +300,7 @@ init({NodeName, MgrModule, Domain, Module, Args, FlowId, RouteId, ClientRef}) ->
 
 
 %%
-%%
+%% State function.
 %%
 active(Event, StateData) ->
     #state{mod = Module, sub_name = SubName, sub_data = SubData} = StateData,
@@ -297,15 +308,7 @@ active(Event, StateData) ->
 
 
 %%
-%%
-%%
-handle_event(Event, StateName, StateData) ->
-    #state{mod = Module, sub_name = SubName, sub_data = SubData} = StateData,
-    delegate(StateName, StateData, {Module, handle_event, [Event, SubName, SubData]}).
-
-
-%%
-%%
+%% State function for synchronous events.
 %%
 active(Event, From, StateData) ->
     #state{mod = Module, sub_name = SubName, sub_data = SubData} = StateData,
@@ -313,7 +316,15 @@ active(Event, From, StateData) ->
 
 
 %%
+%%  All-state asynchronous events.
 %%
+handle_event(Event, StateName, StateData) ->
+    #state{mod = Module, sub_name = SubName, sub_data = SubData} = StateData,
+    delegate(StateName, StateData, {Module, handle_event, [Event, SubName, SubData]}).
+
+
+%%
+%%  All-state synchronous events.
 %%
 handle_sync_event(Event, From, StateName, StateData) ->
     #state{mod = Module, sub_name = SubName, sub_data = SubData} = StateData,
@@ -321,7 +332,7 @@ handle_sync_event(Event, From, StateName, StateData) ->
 
 
 %%
-%%
+%%  Unknown messages.
 %%
 handle_info(Info, StateName, StateData) ->
     #state{mod = Module, sub_name = SubName, sub_data = SubData} = StateData,
@@ -329,7 +340,7 @@ handle_info(Info, StateName, StateData) ->
 
 
 %%
-%%
+%%  Process termination.
 %%
 terminate(Reason, StateName, StateData) ->
     #state{mod = Module, sub_name = SubName, sub_data = SubData} = StateData,
@@ -337,7 +348,7 @@ terminate(Reason, StateName, StateData) ->
 
 
 %%
-%%
+%%  Code upgrades.
 %%
 code_change(OldVsn, StateName, StateData, Extra) ->
     #state{mod = Module, sub_name = SubName, sub_data = SubData} = StateData,
@@ -350,7 +361,7 @@ code_change(OldVsn, StateName, StateData, Extra) ->
 %%% ============================================================================
 
 %%
-%%
+%%  Generic function for delegating calls to `gen_fsm`.
 %%
 delegate(StateName, StateData, {Module, Function, Args}) ->
     #state{
@@ -390,7 +401,7 @@ delegate(StateName, StateData, {Module, Function, Args}) ->
 
 
 %%
-%%
+%%  Updates state of the callback module.
 %%
 update_sub(StateData, NextSubName, NewSubData, NewRelated) ->
     StateData#state{
@@ -401,7 +412,7 @@ update_sub(StateData, NextSubName, NewSubData, NewRelated) ->
 
 
 %%
-%%
+%%  Updates state of the callback module.
 %%
 update_sub(StateData, NewSubData, NewRelated) ->
     StateData#state{
@@ -411,7 +422,7 @@ update_sub(StateData, NewSubData, NewRelated) ->
 
 
 %%
-%%
+%%  Resolve IDs for the current process.
 %%
 resolve_ids(Opts) ->
     FlowId = case proplists:get_value(flow_id, Opts) of
@@ -435,7 +446,7 @@ resolve_ids(Opts) ->
 
 
 %%
-%%
+%%  Resolve a reference to the calling process.
 %%
 resolve_client_ref(Opts) ->
     ClientRef = case proplists:get_value(client, Opts) of
@@ -448,7 +459,7 @@ resolve_client_ref(Opts) ->
 
 
 %%
-%%
+%%  Create new unique ID.
 %%
 make_id() ->
     IdTerm = {node(), erlang:now()},
@@ -457,7 +468,7 @@ make_id() ->
 
 
 %%
-%%
+%%  Setup env for tracking related ids.
 %%
 related_ids_setup() ->
     erlang:put(?ADD_RELATED, []),
@@ -465,7 +476,7 @@ related_ids_setup() ->
 
 
 %%
-%%
+%%  Collect related ids, provided by the callback module.
 %%
 related_ids_collect(Related) ->
     AddRelated = erlang:erase(?ADD_RELATED),
