@@ -19,9 +19,6 @@
 %%%
 %%% Mainly acts as a facade to other modules.
 %%%
-%%% TODO: Add riak support.
-%%% TODO: Add singleton functionality.
-%%%
 -module(axb).
 -compile([{parse_transform, lager_transform}]).
 -export([info/0, info/1, status/0, status/1, make_id/0]).

@@ -18,8 +18,6 @@
 %%% Collects and provides runtime statictics.
 %%% Implemented using Exometer.
 %%%
-%%% TODO: How to get hourly stats?
-%%%
 -module(axb_stats).
 -compile([{parse_transform, lager_transform}]).
 -export([
