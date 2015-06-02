@@ -28,10 +28,17 @@
     test_flow_pool/1,
     test_context_propagation/1,
     test_info/1,
-    test_stats/1
+    test_stats/1,
+    test_console/1,
+    test_supervisor/1
 ]).
 -include_lib("common_test/include/ct.hrl").
 -include_lib("axb_core/include/axb.hrl").
+
+
+%%% ============================================================================
+%%% Callbacks for `common_test` and helper functions.
+%%% ============================================================================
 
 %%
 %%  CT API.
@@ -45,7 +52,9 @@ all() ->
         test_flow_pool,
         test_context_propagation,
         test_info,
-        test_stats
+        test_stats,
+        test_console,
+        test_supervisor
     ].
 
 
@@ -81,9 +90,9 @@ unlink_kill(Pid) ->
     ok.
 
 
-%% =============================================================================
-%%  Testcases.
-%% =============================================================================
+%%% ============================================================================
+%%% Testcases.
+%%% ============================================================================
 
 %%
 %%  Check is node registration / unregistration works.
@@ -358,7 +367,8 @@ test_info(_Config) ->
                     {status, running},
                     {flows, [
                         {axb_itest_flow, [
-                            {status, online}
+                            {status, online},
+                            {domain, d1}
                         ]}
                     ]}
                 ]}
@@ -385,6 +395,7 @@ test_info(_Config) ->
             ]}
         ]}
     ]} = axb:info(flows),
+    ok = axb:i(),
     ok = unlink_kill(AdapterPid),
     ok = unlink_kill(FlowMgrPid),
     ok = unlink_kill(NodePid),
@@ -454,6 +465,123 @@ test_stats(_Config) ->
     ok = unlink_kill(FlowMgrPid),
     ok = unlink_kill(NodePid),
     timer:sleep(50),
+    ok.
+
+%%
+%%  Check if console functions are working, or at least not crashing.
+%%
+test_console(_Config) ->
+    lager:debug("Testcase test_console - start"),
+    {ok, NodePid} = axb_itest_node:start_link(both),
+    {ok, FlowMgrPid} = axb_itest_flows:start_link(single),
+    {ok, AdapterPid} = axb_itest_adapter:start_link(single),
+    timer:sleep(50),
+    %
+    % Check info in the api (check, if not crashing).
+    ok = axb:i(),
+    ok = axb:i(main),
+    ok = axb:i(stats),
+    %
+    % Check info in the console (check, if not crashing).
+    ok = axb_console:status([]),
+    ok = axb_console:stats([]),
+    ok = axb_console:completion([]),
+    ok = axb_console:completion(["axb_itest"]),
+    ok = axb_console:completion(["axb_itest", "axb_itest_adapter"]),
+    ok = axb_console:completion(["axb_itest", "axb_itest_adapter", "all"]),
+    ok = axb_console:completion(["axb_itest", "axb_itest_adapter", "internal"]),
+    ok = axb_console:completion(["axb_itest", "axb_itest_adapter", "external"]),
+    ok = axb_console:completion(["axb_itest", "axb_itest_adapter", "main"]),
+    ok = axb_console:completion(["axb_itest", "axb_itest_adapter", "main", "internal"]),
+    ok = axb_console:completion(["axb_itest", "axb_itest_adapter", "main", "external"]),
+    ok = axb_console:completion(["axb_itest", "axb_itest_adapter", "main", "both"]),
+    ok = axb_console:completion(["axb_itest", "axb_itest_adapter", "main", "all"]),
+    ok = axb_console:completion(["axb_itest", "axb_itest_adapter", "main", "all", "anything"]),
+    ok = axb_console:completion(["axb_itest", "axb_itest_flows"]),
+    ok = axb_console:completion(["axb_itest", "axb_itest_flows", "anything"]),
+    %
+    %   Update online modes.
+    ok = axb_console:set_online(["false", "axb_itest", "axb_itest_adapter", "main", "external"]),
+    ok = axb_console:set_online(["false", "axb_itest", "axb_itest_flows", "d1"]),
+    {ok, [
+        {axb_itest, [
+            {status, running},
+            {adapters, [
+                {axb_itest_adapter, [
+                    {status, running},
+                    {domains, [
+                        {main, [
+                            {internal, online},
+                            {external, offline}
+                        ]}
+                    ]}
+                ]}
+            ]},
+            {flow_mgrs, [
+                {axb_itest_flows, [
+                    {status, running},
+                    {flows, [
+                        {axb_itest_flow, [
+                            {status, offline},
+                            {domain, d1}
+                        ]}
+                    ]}
+                ]}
+            ]}
+        ]}
+    ]} = axb:info(details),
+    ok = axb_console:set_online(["true", "axb_itest", "axb_itest_adapter"]),
+    ok = axb_console:set_online(["true", "axb_itest", "axb_itest_flows"]),
+    {ok, [
+        {axb_itest, [
+            {status, running},
+            {adapters, [
+                {axb_itest_adapter, [
+                    {status, running},
+                    {domains, [
+                        {main, [
+                            {internal, online},
+                            {external, online}
+                        ]}
+                    ]}
+                ]}
+            ]},
+            {flow_mgrs, [
+                {axb_itest_flows, [
+                    {status, running},
+                    {flows, [
+                        {axb_itest_flow, [
+                            {status, online},
+                            {domain, d1}
+                        ]}
+                    ]}
+                ]}
+            ]}
+        ]}
+    ]} = axb:info(details),
+    %
+    % Cleanup.
+    ok = unlink_kill(AdapterPid),
+    ok = unlink_kill(FlowMgrPid),
+    ok = unlink_kill(NodePid),
+    timer:sleep(50),
+    ok.
+
+
+%%
+%%  Check, if axb_supervisor works.
+%%
+test_supervisor(_Config) ->
+    lager:debug("Testcase test_supervisor - start"),
+    {ok, NodePid} = axb_itest_node:start_link(both),
+    {ok, SupPid} = axb_itest_adapter_sup:start_link(empty),
+    false = axb_itest_adapter_listener:is_online(),
+    ok = axb_itest_adapter_sup:start_listener(),
+    true = axb_itest_adapter_listener:is_online(),
+    ok = axb_itest_adapter_sup:stop_listener(),
+    false = axb_itest_adapter_listener:is_online(),
+    ok = unlink_kill(SupPid),
+    ok = unlink_kill(NodePid),
     ok.
 
 

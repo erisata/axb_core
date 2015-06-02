@@ -17,12 +17,10 @@
 %%%
 %%% Adapter supervisor for tests.
 %%%
-%%% TODO: Implement using axb_supervisor.
-%%%
 -module(axb_itest_adapter_sup).
--behaviour(supervisor).
+-behaviour(axb_supervisor).
 -compile([{parse_transform, lager_transform}]).
--export([start_link/1]).
+-export([start_link/1, start_listener/0, stop_listener/0]).
 -export([init/1]).
 
 
@@ -31,10 +29,24 @@
 %%% =============================================================================
 
 %%
-%%
+%%  Start this supervisor.
 %%
 start_link(Mode) ->
-    supervisor:start_link(?MODULE, Mode).
+    axb_supervisor:start_link({local, ?MODULE}, ?MODULE, Mode).
+
+
+%%
+%%  Start business specific process.
+%%
+start_listener() ->
+    axb_supervisor:start_child(?MODULE, child_spec(listener)).
+
+
+%%
+%%  Start business specific process.
+%%
+stop_listener() ->
+    axb_supervisor:stop_child(?MODULE, child_spec(listener)).
 
 
 
@@ -47,11 +59,28 @@ start_link(Mode) ->
 %%
 init(Mode) ->
     {ok, {{one_for_all, 100, 10}, [
-        {axb_itest_adapter,
-            {axb_itest_adapter, start_link, [Mode]},
-            permanent, brutal_kill, worker,
-            [axb_adapter, axb_itest_adapter]
-        }
+        child_spec({adapter, Mode})
     ]}}.
 
 
+
+%%% =============================================================================
+%%% Internal functions.
+%%% =============================================================================
+
+%%
+%%
+%%
+child_spec({adapter, Mode}) ->
+    {axb_itest_adapter,
+        {axb_itest_adapter, start_link, [Mode]},
+        permanent, brutal_kill, worker,
+        [axb_adapter, axb_itest_adapter]
+    };
+
+child_spec(listener) ->
+    {axb_itest_adapter_listener,
+        {axb_itest_adapter_listener, start_link, []},
+        permanent, brutal_kill, worker,
+        [axb_itest_adapter_listener]
+    }.

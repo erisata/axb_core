@@ -10,12 +10,16 @@ case "$1" in
         $NODETOOL rpc axb_console stats
         ;;
     online)
-        $NODETOOL rpc axb_console set_mode online $@
+        $NODETOOL rpc axb_console set_online true $@
         ;;
     offline)
-        $NODETOOL rpc axb_console set_mode offline $@
+        $NODETOOL rpc axb_console set_online false $@
         ;;
     *)
-        echo "Usage: $SCRIPT { status | stats | online <arg> | offline <arg> }
+        echo "Usage: $SCRIPT { status | stats | online <what> | offline <what> }"
+        echo "  where <what> is one of the following:"
+        echo "    <node> <adapter> [all | <domain>] [<direction>]"
+        echo "    <node> <flowMgr> [all | <domain> | <flow>]"
+        echo ""
 esac
 

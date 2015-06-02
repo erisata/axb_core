@@ -39,6 +39,10 @@ test: compile
 itest: compile
 	$(REBAR) ct skip_deps=true || grep Testing logs/raw.log
 
+rtest: itest
+	mkdir -p logs
+	env ERL_LIBS=deps erl -pa ebin -pa itest -config test/sys -s axb -s axb_core_RTEST
+
 clean: clean-itest
 	$(REBAR) clean skip_deps=true
 
@@ -48,5 +52,5 @@ clean-all: clean-itest
 clean-itest:
 	rm -f itest/*.beam
 
-.PHONY: all deps compile compile-all check test itest clean clean-all clean-itest
+.PHONY: all deps compile compile-all check test itest rtest clean clean-all clean-itest
 

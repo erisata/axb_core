@@ -40,7 +40,26 @@
 %%
 info(list) ->
     Entries = exometer:find_entries([axb]),
-    {ok, [ Name || {Name, _Type, enabled} <- Entries ]}.
+    {ok, [ Name || {Name, _Type, enabled} <- Entries ]};
+
+info(main) ->
+    AdapterInfoFun = fun ([axb, Node, ad, Ad, Dom, Dir, Cmd, epm]) ->
+        Epm = get_optional([axb, Node, ad, Ad, Dom, Dir, Cmd, epm], one),
+        Err = get_optional([axb, Node, ad, Ad, Dom, Dir, Cmd, err], one),
+        Dur = get_optional([axb, Node, ad, Ad, Dom, Dir, Cmd, dur], mean),
+        {[axb, Node, ad, Ad, Dom, Dir, Cmd], Epm, Dur, Err}
+    end,
+    FlowMgrInfoFun = fun ([axb, Node, fm, FM, Dom, Flow, epm]) ->
+        Epm = get_optional([axb, Node, fm, FM, Dom, Flow, epm], one),
+        Err = get_optional([axb, Node, fm, FM, Dom, Flow, err], one),
+        Dur = get_optional([axb, Node, fm, FM, Dom, Flow, dur], mean),
+        {[axb, Node, fm, FM, Dom, Flow], Epm, Dur, Err}
+    end,
+    AdapterEpmNames = [ N || {N, _T, _E} <- exometer:find_entries([axb, '_', ad, '_', '_', '_', '_', epm]) ],
+    FlowMgrEpmNames = [ N || {N, _T, _E} <- exometer:find_entries([axb, '_', fm, '_', '_',      '_', epm]) ],
+    {ok, lists:sort(
+        lists:map(AdapterInfoFun, AdapterEpmNames) ++ lists:map(FlowMgrInfoFun, FlowMgrEpmNames)
+    )}.
 
 
 %%
@@ -164,5 +183,15 @@ inc_spiral(Name) ->
 %%
 upd_duration(Name, Value) ->
     ok = exometer:update_or_create(Name, Value, duration, []).
+
+
+%%
+%%
+%%
+get_optional(Name, DataPoint) ->
+    case exometer:get_value(Name, DataPoint) of
+        {ok, [{DataPoint, Val}]} -> Val;
+        {error, not_found} -> 0
+    end.
 
 

@@ -21,12 +21,19 @@
 %%%
 -module(axb).
 -compile([{parse_transform, lager_transform}]).
--export([info/0, info/1, status/0, status/1, make_id/0]).
+-export([start/0, info/0, info/1, i/0, i/1, make_id/0]).
 
 
 %%% =============================================================================
 %%% Public API.
 %%% =============================================================================
+
+%%
+%% Start the application.
+%%
+start() ->
+    application:ensure_all_started(axb_core).
+
 
 %%
 %%  Returns AxB state:
@@ -92,12 +99,66 @@ info(flows) ->
 
 
 %%
-%%  Prints AxB state.
+%%  Prints AxB information.
 %%
-status() ->
-    status(all).
+i() ->
+    i(main).
 
-status(all) ->
+i(main) ->
+    PrintAdapterDomain = fun ({Domain, DomainProps}) ->
+        Internal = proplists:get_value(internal, DomainProps),
+        External = proplists:get_value(external, DomainProps),
+        case {Internal, External} of
+            {online,  online } -> io:format(" ~p[online]", [Domain]);
+            {online,  offline} -> io:format(" ~p[internal-only]", [Domain]);
+            {offline, online } -> io:format(" ~p[external-only]", [Domain]);
+            {offline, offline} -> io:format(" ~p[offline]", [Domain])
+        end
+    end,
+    PrintAdapter = fun ({AdapterModule, AdapterProps}) ->
+        io:format("    ~p - ~p,", [AdapterModule, proplists:get_value(status, AdapterProps)]),
+        ok = lists:foreach(PrintAdapterDomain, proplists:get_value(domains, AdapterProps)),
+        io:format("~n")
+    end,
+    PrintFlow = fun ({FlowModule, FlowProps}) ->
+        Status = proplists:get_value(status, FlowProps),
+        Domain = proplists:get_value(domain, FlowProps),
+        io:format("      ~p - running, ~p[~p]~n", [FlowModule, Domain, Status])
+    end,
+    PrintFlowMgr = fun ({FlowMgrModule, FlowMgrProps}) ->
+        io:format("    ~p - ~p~n", [FlowMgrModule, proplists:get_value(status, FlowMgrProps)]),
+        ok = lists:foreach(PrintFlow, proplists:get_value(flows, FlowMgrProps))
+    end,
+    PrintNode = fun ({NodeName, NodeProps}) ->
+        io:format("  ~p - ~p~n", [NodeName, proplists:get_value(status, NodeProps)]),
+        ok = lists:foreach(PrintFlowMgr, proplists:get_value(flow_mgrs, NodeProps)),
+        ok = lists:foreach(PrintAdapter, proplists:get_value(adapters, NodeProps)),
+        io:format("~n")
+    end,
+    case info(details) of
+        {ok, []} ->
+            io:format("  No AxB nodes registered.~n");
+        {ok, Nodes} ->
+            ok = lists:foreach(PrintNode, Nodes)
+    end,
+    ok;
+
+i(stats) ->
+    {ok, Stats} = axb_stats:info(main),
+    PrintStatSepFun = fun () ->
+        io:format("+-~-15c-+-~-15c-+-~-15c-+-~-64c-~n", [$-, $-, $-, $-])
+    end,
+    PrintStatHdrFun = fun () ->
+        io:format("| ~-15s | ~-15s | ~-15s | ~s~n", ["Err/min", "Exec/min", "Time mean [ms]", "What"])
+    end,
+    PrintStatLineFun = fun ({Name, ExecutionsPerMinute, DurationMean, ErrorsPerMinute}) ->
+        io:format("| ~15B | ~15B | ~15.3f | ~w~n", [ErrorsPerMinute, ExecutionsPerMinute, DurationMean / 1000, Name])
+    end,
+    PrintStatSepFun(),
+    PrintStatHdrFun(),
+    PrintStatSepFun(),
+    ok = lists:foreach(PrintStatLineFun, Stats),
+    PrintStatSepFun(),
     ok.
 
 

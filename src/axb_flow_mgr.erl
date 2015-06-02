@@ -283,6 +283,7 @@ handle_sync_event({unregister_flow, FlowModule}, _From, StateName, StateData) ->
 
 handle_sync_event({info, What}, _From, StateName, StateData) ->
     #state{
+        domains = Domains,
         flows = Flows
     } = StateData,
     Reply = case What of
@@ -290,13 +291,18 @@ handle_sync_event({info, What}, _From, StateName, StateData) ->
             {ok, [
                 {M, flow_status(F)} || F = #flow{mod = M} <- Flows
             ]};
+        domains ->
+            {ok, [
+                {D, undefined} || D <- Domains
+            ]};
         details ->
             {ok, [
                 {flows, [
                     {M, [
-                        {status, flow_status(F)}
+                        {status, flow_status(F)},
+                        {domain, D}
                     ]}
-                    || F = #flow{mod = M} <- Flows
+                    || F = #flow{mod = M, domain = D} <- Flows
                 ]}
             ]}
     end,
