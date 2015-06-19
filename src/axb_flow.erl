@@ -34,7 +34,7 @@
 -module(axb_flow).
 -behaviour(gen_fsm).
 -compile([{parse_transform, lager_transform}]).
--export([start_sup/2, start_link/6, respond/1, respond/2, wait_response/2]).
+-export([start_sup/2, start_link/7, start_link/6, respond/1, respond/2, wait_response/2]).
 -export([flow_id/0, ctx_id/0, client_ref/0, related_id/2]).
 -export([init/1, handle_event/3, handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
 -export([active/2, active/3]).
@@ -168,16 +168,20 @@ start_sup(StartFun, Opts) ->
 %%
 %%  Start link.
 %%
-start_link(NodeName, MgrModule, Domain, Module, FlowArgs, Opts) ->
+start_link(NodeName, MgrModule, Domain, Module, CBModule, FlowArgs, Opts) ->
     case axb_flow_mgr:flow_online(NodeName, MgrModule, Module) of
         true ->
             {ok, FlowId, CtxId} = resolve_ids(Opts),
             {ok, ClientRef} = resolve_client_ref(Opts),
-            Args = {NodeName, MgrModule, Domain, Module, FlowArgs, FlowId, CtxId, ClientRef},
+            Args = {NodeName, MgrModule, Domain, Module, CBModule, FlowArgs, FlowId, CtxId, ClientRef},
             gen_fsm:start_link(?REF(FlowId), ?MODULE, Args, Opts);
         false ->
             {error, flow_offline}
     end.
+
+
+start_link(NodeName, MgrModule, Domain, Module, FlowArgs, Opts) ->
+    start_link(NodeName, MgrModule, Domain, Module, Module, FlowArgs, Opts).
 
 
 %%
@@ -253,6 +257,7 @@ related_id(Name, Value) ->
 -record(state, {
     node        :: term(),
     mod         :: module(),
+    cbm         :: module(),
     mgr         :: module(),
     dom         :: atom(),
     sub_name    :: atom(),
@@ -273,7 +278,7 @@ related_id(Name, Value) ->
 %%
 %%  Initialization.
 %%
-init({NodeName, MgrModule, Domain, Module, Args, FlowId, CtxId, ClientRef}) ->
+init({NodeName, MgrModule, Domain, Module, CBModule, Args, FlowId, CtxId, ClientRef}) ->
     ok = axb_flow_mgr:flow_started(NodeName, MgrModule, Domain, Module, []),
     ThisCtxId = axb_context:setup(CtxId),
     erlang:put(?FLOW_ID, FlowId),
@@ -281,6 +286,7 @@ init({NodeName, MgrModule, Domain, Module, Args, FlowId, CtxId, ClientRef}) ->
     StateData = #state{
         node = NodeName,
         mod = Module,
+        cbm = CBModule,
         mgr = MgrModule,
         dom = Domain,
         sub_name = undefined,
@@ -291,63 +297,63 @@ init({NodeName, MgrModule, Domain, Module, Args, FlowId, CtxId, ClientRef}) ->
         start_time = os:timestamp(),
         related = []
     },
-    delegate(active, StateData, {Module, init, [Args]}).
+    delegate(active, StateData, {CBModule, init, [Args]}).
 
 
 %%
 %% State function.
 %%
 active(Event, StateData) ->
-    #state{mod = Module, sub_name = SubName, sub_data = SubData} = StateData,
-    delegate(active, StateData, {Module, SubName, [Event, SubData]}).
+    #state{cbm = CBModule, sub_name = SubName, sub_data = SubData} = StateData,
+    delegate(active, StateData, {CBModule, SubName, [Event, SubData]}).
 
 
 %%
 %% State function for synchronous events.
 %%
 active(Event, From, StateData) ->
-    #state{mod = Module, sub_name = SubName, sub_data = SubData} = StateData,
-    delegate(active, StateData, {Module, SubName, [Event, From, SubData]}).
+    #state{cbm = CBModule, sub_name = SubName, sub_data = SubData} = StateData,
+    delegate(active, StateData, {CBModule, SubName, [Event, From, SubData]}).
 
 
 %%
 %%  All-state asynchronous events.
 %%
 handle_event(Event, StateName, StateData) ->
-    #state{mod = Module, sub_name = SubName, sub_data = SubData} = StateData,
-    delegate(StateName, StateData, {Module, handle_event, [Event, SubName, SubData]}).
+    #state{cbm = CBModule, sub_name = SubName, sub_data = SubData} = StateData,
+    delegate(StateName, StateData, {CBModule, handle_event, [Event, SubName, SubData]}).
 
 
 %%
 %%  All-state synchronous events.
 %%
 handle_sync_event(Event, From, StateName, StateData) ->
-    #state{mod = Module, sub_name = SubName, sub_data = SubData} = StateData,
-    delegate(StateName, StateData, {Module, handle_sync_event, [Event, From, SubName, SubData]}).
+    #state{cbm = CBModule, sub_name = SubName, sub_data = SubData} = StateData,
+    delegate(StateName, StateData, {CBModule, handle_sync_event, [Event, From, SubName, SubData]}).
 
 
 %%
 %%  Unknown messages.
 %%
 handle_info(Info, StateName, StateData) ->
-    #state{mod = Module, sub_name = SubName, sub_data = SubData} = StateData,
-    delegate(StateName, StateData, {Module, handle_info, [Info, SubName, SubData]}).
+    #state{cbm = CBModule, sub_name = SubName, sub_data = SubData} = StateData,
+    delegate(StateName, StateData, {CBModule, handle_info, [Info, SubName, SubData]}).
 
 
 %%
 %%  Process termination.
 %%
 terminate(Reason, StateName, StateData) ->
-    #state{mod = Module, sub_name = SubName, sub_data = SubData} = StateData,
-    delegate(StateName, StateData, {Module, terminate, [Reason, SubName, SubData]}).
+    #state{cbm = CBModule, sub_name = SubName, sub_data = SubData} = StateData,
+    delegate(StateName, StateData, {CBModule, terminate, [Reason, SubName, SubData]}).
 
 
 %%
 %%  Code upgrades.
 %%
 code_change(OldVsn, StateName, StateData, Extra) ->
-    #state{mod = Module, sub_name = SubName, sub_data = SubData} = StateData,
-    delegate(StateName, StateData, {Module, code_change, [OldVsn, SubName, SubData, Extra]}).
+    #state{cbm = CBModule, sub_name = SubName, sub_data = SubData} = StateData,
+    delegate(StateName, StateData, {CBModule, code_change, [OldVsn, SubName, SubData, Extra]}).
 
 
 

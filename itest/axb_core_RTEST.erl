@@ -44,7 +44,7 @@ init({}) ->
             [axb_node, axb_itest_node]
         },
         {axb_itest_flows,
-            {axb_itest_flows, start_link, [single]},
+            {axb_itest_flows, start_link, [all]},
             permanent, brutal_kill, supervisor,
             [axb_flow_mgr, axb_itest_flows]
         },

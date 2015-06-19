@@ -49,7 +49,19 @@ init(empty) ->
 init(single) ->
     {ok, [d1, d2], [
         {axb_itest_flow, {d1}}
+    ]};
+
+init(eip) ->
+    {ok, [d1, d2], [
+        {axb_itest_eip_pipeline, {d2}}
+    ]};
+
+init(all) ->
+    {ok, [d1, d2], [
+        {axb_itest_flow, {d1}},
+        {axb_itest_eip_pipeline, {d2}}
     ]}.
+
 
 %%
 %%

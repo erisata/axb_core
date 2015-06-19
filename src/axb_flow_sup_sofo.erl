@@ -20,7 +20,7 @@
 -module(axb_flow_sup_sofo).
 -compile([{parse_transform, lager_transform}]).
 -behaviour(supervisor).
--export([sup_start_spec/5, start_link/5, start_flow/5]).
+-export([sup_start_spec/5, start_link/5, start_flow/5, start_sync_flow/5]).
 -export([init/1]).
 
 -define(REF(NodeName, FlowMgrModule, FlowModule), {via, gproc, {n, l, {?MODULE, NodeName, FlowMgrModule, FlowModule}}}).
@@ -68,6 +68,19 @@ start_flow(NodeName, FlowMgrModule, FlowModule, FlowArgs, FlowOpts) ->
     axb_flow:start_sup(StartFun, FlowOpts).
 
 
+%%
+%%  Start flow, and wait for its response synchronously.
+%%
+start_sync_flow(NodeName, FlowMgrModule, FlowModule, FlowArgs, FlowOpts) ->
+    case start_flow(NodeName, FlowMgrModule, FlowModule, FlowArgs, FlowOpts) of
+        {ok, FlowId} ->
+            Timeout = proplists:get_value(timeout, FlowOpts, 5000),
+            axb_flow:wait_response(FlowId, Timeout);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+
 
 %%% ============================================================================
 %%% Callbacks for supervisor.
@@ -78,14 +91,14 @@ start_flow(NodeName, FlowMgrModule, FlowModule, FlowArgs, FlowOpts) ->
 %%
 init({NodeName, FlowMgrModule, FlowDomain, FlowModule, Opts}) ->
     DefaultMFA = {axb_flow, start_link, [NodeName, FlowMgrModule, FlowDomain, FlowModule]},
-    DefaultMods = [axb_flow, FlowMgrModule],
+    DefaultMods = [axb_flow, FlowModule],
     FlowMFA = proplists:get_value(mfa, Opts, DefaultMFA),
     FlowMods = proplists:get_value(modules, Opts, DefaultMods),
     DefaultSpec = {FlowModule, FlowMFA, transient, brutal_kill, worker, FlowMods},
     ChildSpec = proplists:get_value(spec, Opts, DefaultSpec),
     lager:debug(
         "Starting flow supervisor for node=~p, flow_mgr=~p, flow=~p with child_spec=~p",
-        [NodeName, FlowMgrModule, FlowMgrModule, ChildSpec]
+        [NodeName, FlowMgrModule, FlowModule, ChildSpec]
     ),
     ok = axb_flow_mgr:register_flow(NodeName, FlowMgrModule, FlowDomain, FlowModule, false),
     {ok, {{simple_one_for_one, 100, 1000}, [ChildSpec]}}.

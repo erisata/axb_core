@@ -30,7 +30,8 @@
     test_info/1,
     test_stats/1,
     test_console/1,
-    test_supervisor/1
+    test_supervisor/1,
+    test_eip_pipeline/1
 ]).
 -include_lib("common_test/include/ct.hrl").
 -include_lib("axb_core/include/axb.hrl").
@@ -54,7 +55,8 @@ all() ->
         test_info,
         test_stats,
         test_console,
-        test_supervisor
+        test_supervisor,
+        test_eip_pipeline
     ].
 
 
@@ -581,6 +583,21 @@ test_supervisor(_Config) ->
     ok = axb_itest_adapter_sup:stop_listener(),
     false = axb_itest_adapter_listener:is_online(),
     ok = unlink_kill(SupPid),
+    ok = unlink_kill(NodePid),
+    ok.
+
+
+%%
+%%  Check if Pipeline EIP works.
+%%
+test_eip_pipeline(_Config) ->
+    lager:debug("Testcase test_eip_pipeline - start"),
+    {ok, NodePid}    = axb_itest_node:start_link(flow_mgr),
+    {ok, FlowMgrPid} = axb_itest_flows:start_link(eip),
+    timer:sleep(500),
+    {ok, {save, {transform, {read, x}}}} = axb_itest_eip_pipeline:test_cast(x),
+    {ok, {save, {transform, {read, y}}}} = axb_itest_eip_pipeline:test_call(y),
+    ok = unlink_kill(FlowMgrPid),
     ok = unlink_kill(NodePid),
     ok.
 
