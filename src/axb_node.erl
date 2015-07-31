@@ -29,6 +29,8 @@
 %%% work as a backend node. The current node can use clusteres services
 %%% before starting the clustering, as any other client.
 %%%
+%%% TODO: The node hangs (does not register to the manager) if adapter is started that was not marked to be waited for.
+%%%
 -module(axb_node).
 -behaviour(gen_fsm).
 -compile([{parse_transform, lager_transform}]).
