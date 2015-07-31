@@ -71,6 +71,9 @@ start_child(Name, {ChildId, _StartFunc, _Restart, _Shutdown, _Type, _Modules} = 
 %%  Stop the given child, if exists.
 %%
 stop_child(Name, {ChildId, _StartFunc, _Restart, _Shutdown, _Type, _Modules}) ->
+    stop_child(Name, ChildId);
+
+stop_child(Name, ChildId) ->
     case supervisor:terminate_child(Name, ChildId) of
         ok ->
             ok;
