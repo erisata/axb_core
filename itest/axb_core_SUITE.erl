@@ -595,8 +595,8 @@ test_eip_pipeline(_Config) ->
     {ok, NodePid}    = axb_itest_node:start_link(flow_mgr),
     {ok, FlowMgrPid} = axb_itest_flows:start_link(eip),
     timer:sleep(500),
-    {ok, {save, {transform, {read, x}}}} = axb_itest_eip_pipeline:test_cast(x),
-    {ok, {save, {transform, {read, y}}}} = axb_itest_eip_pipeline:test_call(y),
+    {save, {transform, {read, x}}} = axb_itest_eip_pipeline:test_cast(x),
+    {save, {transform, {read, y}}} = axb_itest_eip_pipeline:test_call(y),
     ok = unlink_kill(FlowMgrPid),
     ok = unlink_kill(NodePid),
     ok.

@@ -118,7 +118,7 @@ init({Module, Args}) ->
 executing(timeout, StateData = #state{module = Module, state = State, steps = StepsLeft}) ->
     case StepsLeft of
         [] ->
-            axb_flow:respond({ok, State}),
+            axb_flow:respond(State),
             {stop, normal, StateData};
         [Step | OtherSteps] ->
             case Module:handle_step(Step, State) of
