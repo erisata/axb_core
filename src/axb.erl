@@ -166,7 +166,7 @@ i(stats) ->
 %%  Create new unique ID.
 %%
 make_id() ->
-    IdTerm = {node(), erlang:now()},
+    IdTerm = {erlang:node(), erlang:monotonic_time(), erlang:unique_integer([monotonic])},
     SHA = crypto:hash(sha, erlang:term_to_binary(IdTerm)),
     iolist_to_binary([io_lib:format("~2.16.0B", [X]) || X <- binary_to_list(SHA)]).
 

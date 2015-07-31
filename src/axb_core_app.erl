@@ -20,6 +20,7 @@
 -module(axb_core_app).
 -behaviour(application).
 -compile([{parse_transform, lager_transform}]).
+-export([get_env/1, get_env/2]).
 -export([start/2, stop/1]).
 
 -define(APP, axb_core).
@@ -28,6 +29,15 @@
 %%% ============================================================================
 %%% Public API.
 %%% ============================================================================
+
+
+get_env(Name) ->
+    application:get_env(?APP, Name).
+
+
+get_env(Name, Default) ->
+    application:get_env(?APP, Name, Default).
+
 
 
 %%% ============================================================================

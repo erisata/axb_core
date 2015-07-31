@@ -211,7 +211,10 @@ waiting(timeout, StateData = #state{adapters = Adapters, flow_mgrs = FlowMgrs}) 
 starting_internal(timeout, StateData = #state{name = NodeName, adapters = Adapters}) ->
     lager:debug("Node ~p is starting internal services for all known adapters.", [NodeName]),
     StartAdapterInternalServices = fun (#adapter{mod = AdapterModule}) ->
-        ok = axb_adapter:domain_online(NodeName, AdapterModule, all, internal, true)
+        case is_adapter_disabled(NodeName, AdapterModule) of
+            true  -> lager:warning("Skipping disabled adapter ~p at ~p.", [AdapterModule, NodeName]);
+            false -> ok = axb_adapter:domain_online(NodeName, AdapterModule, all, internal, true)
+        end
     end,
     ok = lists:foreach(StartAdapterInternalServices, Adapters),
     {next_state, starting_flows, StateData, 0}.
@@ -235,7 +238,10 @@ starting_flows(timeout, StateData = #state{name = NodeName, flow_mgrs = FlowMgrs
 starting_external(timeout, StateData = #state{name = NodeName, adapters = Adapters}) ->
     lager:debug("Node ~p is starting external services for all known adapters.", [NodeName]),
     StartAdapterExternalServices = fun (#adapter{mod = AdapterModule}) ->
-        ok = axb_adapter:domain_online(NodeName, AdapterModule, all, all, true)
+        case is_adapter_disabled(NodeName, AdapterModule) of
+            true  -> lager:warning("Skipping disabled adapter ~p at ~p.", [AdapterModule, NodeName]);
+            false -> ok = axb_adapter:domain_online(NodeName, AdapterModule, all, all, true)
+        end
     end,
     ok = lists:foreach(StartAdapterExternalServices, Adapters),
     {next_state, ready, StateData, 0}.
@@ -444,5 +450,13 @@ adapter_status(#adapter{pid = Pid}) when is_pid(Pid) -> running.
 %%
 flow_mgr_status(#flow_mgr{pid = undefined})            -> down;
 flow_mgr_status(#flow_mgr{pid = Pid}) when is_pid(Pid) -> running.
+
+
+%%
+%%  Checks, if the specified adapter is disabled on startup.
+%%
+is_adapter_disabled(NodeName, AdapterModule) ->
+    DisabledAdapters = axb_core_app:get_env(disabled_adapters, []),
+    lists:member({NodeName, AdapterModule}, DisabledAdapters).
 
 
