@@ -56,7 +56,8 @@
 %%  Start the pipeline.
 %%
 start_link(NodeName, MgrModule, Domain, Module, Args, Opts) ->
-    axb_flow:start_link(NodeName, MgrModule, Domain, Module, ?MODULE, {Module, Args}, Opts).
+    Noreply = proplists:get_bool(pipeline_noreply, Opts),
+    axb_flow:start_link(NodeName, MgrModule, Domain, Module, ?MODULE, {Module, Args, Noreply}, Opts).
 
 
 %%
@@ -86,9 +87,10 @@ wait_response(FlowId, Timeout) ->
 %%% ============================================================================
 
 -record(state, {
-    module,     %%  Pipeline implementation process.
-    state,      %%  Current state of the processed data.
-    steps       %%  Steps, left to process.
+    module,     % Pipeline implementation process.
+    state,      % Current state of the processed data.
+    steps,      % Steps, left to process.
+    noreply     % If true, reply will not be sent on end (e.g. for async pipelines).
 }).
 
 
@@ -99,13 +101,14 @@ wait_response(FlowId, Timeout) ->
 %%
 %%  Initialize this process.
 %%
-init({Module, Args}) ->
+init({Module, Args, Noreply}) ->
     case Module:init(Args) of
         {ok, Steps, Input} ->
             StateData = #state{
                 module = Module,
                 state = Input,
-                steps = Steps
+                steps = Steps,
+                noreply = Noreply
             },
             {ok, executing, StateData, 0}
     end.
@@ -115,10 +118,13 @@ init({Module, Args}) ->
 %%
 %%  Single state is needed for this process.
 %%
-executing(timeout, StateData = #state{module = Module, state = State, steps = StepsLeft}) ->
+executing(timeout, StateData = #state{module = Module, state = State, steps = StepsLeft, noreply = Noreply}) ->
     case StepsLeft of
         [] ->
-            axb_flow:respond(State),
+            case Noreply of
+                true  -> ok;
+                false -> axb_flow:respond(State)
+            end,
             {stop, normal, StateData};
         [Step | OtherSteps] ->
             case Module:handle_step(Step, State) of
