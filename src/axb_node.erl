@@ -211,9 +211,12 @@ waiting(timeout, StateData = #state{adapters = Adapters, flow_mgrs = FlowMgrs}) 
 starting_internal(timeout, StateData = #state{name = NodeName, adapters = Adapters}) ->
     lager:debug("Node ~p is starting internal services for all known adapters.", [NodeName]),
     StartAdapterInternalServices = fun (#adapter{mod = AdapterModule}) ->
-        case is_adapter_disabled(NodeName, AdapterModule) of
-            true  -> lager:warning("Skipping disabled adapter ~p at ~p.", [AdapterModule, NodeName]);
-            false -> ok = axb_adapter:domain_online(NodeName, AdapterModule, all, internal, true)
+        case is_adapter_startup_enabled(NodeName, AdapterModule) of
+            true ->
+                EnabledDomains = adapter_domains_enabled_on_startup(NodeName, AdapterModule),
+                ok = axb_adapter:domain_online(NodeName, AdapterModule, EnabledDomains, internal, true);
+            false ->
+                lager:warning("Skipping disabled adapter ~p at ~p.", [AdapterModule, NodeName])
         end
     end,
     ok = lists:foreach(StartAdapterInternalServices, Adapters),
@@ -238,9 +241,12 @@ starting_flows(timeout, StateData = #state{name = NodeName, flow_mgrs = FlowMgrs
 starting_external(timeout, StateData = #state{name = NodeName, adapters = Adapters}) ->
     lager:debug("Node ~p is starting external services for all known adapters.", [NodeName]),
     StartAdapterExternalServices = fun (#adapter{mod = AdapterModule}) ->
-        case is_adapter_disabled(NodeName, AdapterModule) of
-            true  -> lager:warning("Skipping disabled adapter ~p at ~p.", [AdapterModule, NodeName]);
-            false -> ok = axb_adapter:domain_online(NodeName, AdapterModule, all, all, true)
+        case is_adapter_startup_enabled(NodeName, AdapterModule) of
+            true ->
+                EnabledDomains = adapter_domains_enabled_on_startup(NodeName, AdapterModule),
+                ok = axb_adapter:domain_online(NodeName, AdapterModule, EnabledDomains, all, true);
+            false ->
+                lager:warning("Skipping disabled adapter ~p at ~p.", [AdapterModule, NodeName])
         end
     end,
     ok = lists:foreach(StartAdapterExternalServices, Adapters),
@@ -453,10 +459,51 @@ flow_mgr_status(#flow_mgr{pid = Pid}) when is_pid(Pid) -> running.
 
 
 %%
-%%  Checks, if the specified adapter is disabled on startup.
+%%  Returns a list of adapter domains, enabled on startup.
 %%
-is_adapter_disabled(NodeName, AdapterModule) ->
-    DisabledAdapters = axb_core_app:get_env(disabled_adapters, []),
-    lists:member({NodeName, AdapterModule}, DisabledAdapters).
+adapter_domains_enabled_on_startup(NodeName, AdapterModule) ->
+    FilterEnabledDomains = fun ({DomainName, _InternalServicesStatus, _ExternalServicesStatus}) ->
+        case is_adapter_domain_startup_enabled(NodeName, AdapterModule, DomainName) of
+            true  -> {true, DomainName};
+            false -> false
+        end
+    end,
+    {ok, DomainStatuses} = axb_adapter:info(NodeName, AdapterModule, domains),
+    lists:filtermap(FilterEnabledDomains, DomainStatuses).
+
+
+%%
+%%  Checks, if the specified adapter is enabled on startup.
+%%
+is_adapter_startup_enabled(NodeName, AdapterModule) ->
+    is_startup_enabled({NodeName, AdapterModule}).
+
+
+%%
+%%  Checks, if the specified adapter domain is enabled on startup.
+%%
+is_adapter_domain_startup_enabled(NodeName, AdapterModule, DomainName) ->
+    is_startup_enabled({NodeName, AdapterModule, DomainName}).
+
+
+is_startup_enabled(Key) ->
+    StartupConf = axb_core_app:get_env(startup, []),
+    case lists:keyfind(Key, 1, StartupConf) of
+        false ->
+            true;
+        {Key, true} ->
+            true;
+        {Key, false} ->
+            false;
+        {Key, {node, Node}} when is_atom(Node) ->
+            erlang:node() =:= Node;
+        {Key, {node, Nodes}} when is_list(Nodes) ->
+            lists:member(erlang:node(), Nodes);
+        {key, {predicate, Module, Function, Args}} ->
+            case erlang:apply(Module, Function, Args) of
+                true  -> true;
+                false -> false
+            end
+    end.
 
 
