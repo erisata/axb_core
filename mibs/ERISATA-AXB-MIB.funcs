@@ -1,0 +1,15 @@
+%%%
+%%% Mapping of MIB objects types to functions implementing them.
+%%%
+
+%% Generic info.
+
+%% Runtime stats.
+{flowsExecuted,     {axb_snmp, ot_flows_executed, []}}.
+{flowsDuration,     {axb_snmp, ot_flows_duration, []}}.
+{flowsErrors,       {axb_snmp, ot_flows_errors, []}}.
+{adapterExecuted,   {axb_snmp, ot_adapters_executed, []}}.
+{adapterDuration,   {axb_snmp, ot_adapters_duration, []}}.
+{adapterErrors,     {axb_snmp, ot_adapters_errors, []}}.
+
+

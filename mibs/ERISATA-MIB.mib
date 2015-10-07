@@ -1,0 +1,22 @@
+ERISATA-MIB DEFINITIONS ::= BEGIN
+
+    IMPORTS
+        MODULE-IDENTITY, enterprises FROM SNMPv2-SMI
+        ;
+
+    erisataMib MODULE-IDENTITY
+        LAST-UPDATED "201510070000Z"
+        ORGANIZATION "UAB Erisata"
+        CONTACT-INFO
+            "Karolis Petrauskas
+             UAB Erisata
+             Vivulskio 15-3, Vilnius
+             karolis.petrauskas@erisata.lt"
+        DESCRIPTION "The main module for the Erisata SNMP MIBs"
+        ::= { erisataMibs 1 }
+
+    erisata OBJECT IDENTIFIER ::= { enterprises 46562 }
+
+    erisataMibs OBJECT IDENTIFIER ::= { erisata 10000 }
+
+END

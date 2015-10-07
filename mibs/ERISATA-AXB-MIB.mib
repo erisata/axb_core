@@ -1,0 +1,130 @@
+ERISATA-AXB-MIB DEFINITIONS ::= BEGIN
+
+    IMPORTS
+        DisplayString                                   FROM RFC1213-MIB
+        MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE FROM SNMPv2-SMI
+        erisata, erisataMibs                            FROM ERISATA-MIB
+        MODULE-COMPLIANCE, OBJECT-GROUP,
+        NOTIFICATION-GROUP                              FROM SNMPv2-CONF
+        ;
+
+    axbMib MODULE-IDENTITY
+        LAST-UPDATED "201510070000Z"
+        ORGANIZATION "UAB Erisata"
+        CONTACT-INFO
+            "Karolis Petrauskas
+             UAB Erisata
+             Vivulskio 15-3, Vilnius
+             karolis.petrauskas@erisata.lt"
+        DESCRIPTION "SNMP module for the AXB core."
+        ::= { erisataMibs 2 }
+
+    --
+    --  MIB metadata.
+    --
+    axbMibGroups   OBJECT IDENTIFIER ::= { axbMib 1 }
+    axbMibCompls   OBJECT IDENTIFIER ::= { axbMib 2 }
+
+    --
+    --  Structure for all metrics.
+    --
+    axb            OBJECT IDENTIFIER ::= { erisata 10100 }
+    axbObjects     OBJECT IDENTIFIER ::= { axb 1 }
+    axbEvents      OBJECT IDENTIFIER ::= { axb 2 }
+
+    --
+    --  Object types, providing generic information.
+    --
+--     engineName OBJECT-TYPE
+--         SYNTAX      DisplayString
+--         MAX-ACCESS  read-only
+--         STATUS      current
+--         DESCRIPTION "ESB instance name."
+--         ::= { esbObjects 1 }
+
+
+    --
+    --  Object types, providing stats calculated at runtime.
+    --  Starts at 100.
+    --
+    flowsExecuted OBJECT-TYPE
+        SYNTAX      INTEGER
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION "Number of flows, that were succesfully executed in last 60 seconds"
+        ::= { axbObjects 100 }
+
+    flowsDuration OBJECT-TYPE
+        SYNTAX      INTEGER
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION "Total duration of flows executed in last 60 seconds"
+        ::= { axbObjects 101 }
+
+    flowsErrors OBJECT-TYPE
+        SYNTAX      INTEGER
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION "Number of flows, that failed in last 60 seconds"
+        ::= { axbObjects 102 }
+
+    adapterExecuted OBJECT-TYPE
+        SYNTAX      INTEGER
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION "Number of adapter commands, that were succesfully executed in last 60 seconds"
+        ::= { axbObjects 110 }
+
+    adapterDuration OBJECT-TYPE
+        SYNTAX      INTEGER
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION "Total duration of adapter commands executed in last 60 seconds"
+        ::= { axbObjects 111 }
+
+    adapterErrors OBJECT-TYPE
+        SYNTAX      INTEGER
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION "Number of adapter commands, that failed in last 60 seconds"
+        ::= { axbObjects 112 }
+
+
+    ----------------------------------------------------------------------------
+    --  Notifications
+    --
+
+    --
+    --  This is here just for example of a notification (SNMP trap).
+    --
+--     engineNameChanged NOTIFICATION-TYPE
+--         OBJECTS     { engineName }
+--         STATUS      current
+--         DESCRIPTION "This event is sent, when the instance name changes."
+--         ::= { axbEvents 1 }
+
+
+    ----------------------------------------------------------------------------
+    --  Groups
+    --
+
+--     axbGenericOG OBJECT-GROUP
+--         OBJECTS {engineName}
+--         STATUS current
+--         DESCRIPTION "Generic node information."
+--         ::= { esbMibGroups 1 }
+
+    axbRTStatsOG OBJECT-GROUP
+        OBJECTS {flowsExecuted, flowsDuration, flowsErrors,
+                 adapterExecuted, adapterDuration, adapterErrors}
+        STATUS current
+        DESCRIPTION "Statistics collected at runtime."
+        ::= { axbMibGroups 2 }
+
+--     esbGenericNG NOTIFICATION-GROUP
+--         NOTIFICATIONS { engineNameChanged }
+--         STATUS        current
+--         DESCRIPTION   "Main ESB notifications."
+--         ::= { esbMibGroups 3 }
+
+END
