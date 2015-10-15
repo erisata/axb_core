@@ -17,7 +17,7 @@ ERISATA-AXB-MIB DEFINITIONS ::= BEGIN
              Vivulskio 15-3, Vilnius
              karolis.petrauskas@erisata.lt"
         DESCRIPTION "SNMP module for the AXB core."
-        ::= { erisataMibs 2 }
+        ::= { erisataMibs 4 }
 
     --
     --  MIB metadata.
