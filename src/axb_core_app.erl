@@ -50,13 +50,16 @@ get_env(Name, Default) ->
 %%
 start(_StartType, _StartArgs) ->
     ok = validate_env(application:get_all_env()),
-    axb_core_sup:start_link().
+    SnmpAgent = enomon_snmp:load_application_mib(?APP, ?MODULE, "ERISATA-AXB-MIB"),
+    {ok, Pid} = axb_core_sup:start_link(),
+    {ok, Pid, {SnmpAgent}}.
 
 
 %%
 %% Stop the application.
 %%
-stop(_State) ->
+stop({SnmpAgent}) ->
+    enomon:unload_application_mib(?APP, SnmpAgent, "ERISATA-AXB-MIB"),
     ok.
 
 
