@@ -48,7 +48,7 @@ info(main) ->
     AdapterInfoFun = fun ([axb, Node, ad, Ad, Dom, Dir, Cmd, epm]) ->
         Epm = get_optional([axb, Node, ad, Ad, Dom, Dir, Cmd, epm], one),
         Err = get_optional([axb, Node, ad, Ad, Dom, Dir, Cmd, err], one),
-        Dur = get_optional([axb, Node, ad, Ad, Dom, Dir, Cmd, dur], one),
+        Dur = get_optional([axb, Node, ad, Ad, Dom, Dir, Cmd, dur], one), % TODO: Use mean or average instead of count.
         {[axb, Node, ad, Ad, Dom, Dir, Cmd], Epm, Dur, Err}
     end,
     FlowMgrInfoFun = fun ([axb, Node, fm, FM, Dom, Flow, epm]) ->
