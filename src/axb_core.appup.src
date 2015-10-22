@@ -16,7 +16,17 @@
 
 {git,
     [
+        {"1.0.0", [
+            {load_module,   axb_core_app},
+            {add_module,    axb_stats},
+            {load_module,   axb_snmp}
+        ]}
     ],
     [
+        {"1.0.0", [
+            {load_module,   axb_core_app},
+            {delete_module, axb_stats},
+            {load_module,   axb_snmp}
+        ]}
     ]
 }.
