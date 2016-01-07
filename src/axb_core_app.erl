@@ -1,5 +1,5 @@
 %/--------------------------------------------------------------------
-%| Copyright 2015 Erisata, UAB (Ltd.)
+%| Copyright 2015-2016 Erisata, UAB (Ltd.)
 %|
 %| Licensed under the Apache License, Version 2.0 (the "License");
 %| you may not use this file except in compliance with the License.
@@ -59,7 +59,7 @@ start(_StartType, _StartArgs) ->
 %% Stop the application.
 %%
 stop({SnmpAgent}) ->
-    enomon:unload_application_mib(?APP, SnmpAgent, "ERISATA-AXB-MIB"),
+    _ = enomon_snmp:unload_application_mib(?APP, SnmpAgent, "ERISATA-AXB-MIB"),
     ok.
 
 
