@@ -94,6 +94,10 @@ ERISATA-AXB-CORE-MIB DEFINITIONS ::= BEGIN
         ::= { axbCoreObjects 203 }
 
 
+    -- TODO: Add Node table.
+    -- TODO: Add Adapter table.
+    -- TODO: Add Flow table.
+
 
     ----------------------------------------------------------------------------
     --  MIB Conformance definitions.
