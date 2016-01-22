@@ -1,0 +1,124 @@
+ERISATA-AXB-CORE-MIB DEFINITIONS ::= BEGIN
+
+    IMPORTS
+        Gauge32                                         FROM SNMPv2-SMI
+        MODULE-IDENTITY, OBJECT-TYPE                    FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP                 FROM SNMPv2-CONF
+        axb                                             FROM ERISATA-AXB-MIB
+        ;
+
+    axbCore MODULE-IDENTITY
+        LAST-UPDATED "201601070000Z"
+        ORGANIZATION "UAB Erisata"
+        CONTACT-INFO
+            "Karolis Petrauskas
+            UAB Erisata
+            Vivulskio 15-3, Vilnius
+            karolis.petrauskas@erisata.lt"
+        DESCRIPTION
+            "SNMP module for the AxB Core application."
+        REVISION "201601070000Z"
+        DESCRIPTION "OID Structure redesigned to simplify it."
+        REVISION "201510070000Z"
+        DESCRIPTION "Initial revision."
+        ::= { axb 1 }
+
+    --
+    --  MIB Conformance objects.
+    --
+    axbCoreMib        OBJECT IDENTIFIER ::= { axbCore 1}
+    axbCoreMibCompls  OBJECT IDENTIFIER ::= { axbCoreMib 1}
+    axbCoreMibGroups  OBJECT IDENTIFIER ::= { axbCoreMib 2}
+
+    --
+    --  Structure for all metrics.
+    --
+    axbCoreObjects    OBJECT IDENTIFIER ::= { axbCore 2 }
+
+
+
+    ----------------------------------------------------------------------------
+    --  Object type definitions.
+    --
+
+    --
+    --  Object types, providing stats calculated at runtime.
+    --  Starts at 100.
+    --
+    flowsExecuted OBJECT-TYPE
+        SYNTAX      Gauge32
+        UNITS       "/min"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION "Number of flows, that were succesfully executed in last 60 seconds"
+        ::= { axbCoreObjects 101 }
+
+    flowsDuration OBJECT-TYPE
+        SYNTAX      Gauge32
+        UNITS       "ms"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION "Total duration of flows executed in last 60 seconds"
+        ::= { axbCoreObjects 102 }
+
+    flowsErrors OBJECT-TYPE
+        SYNTAX      Gauge32
+        UNITS       "/min"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION "Number of flows, that failed in last 60 seconds"
+        ::= { axbCoreObjects 103 }
+
+    adapterExecuted OBJECT-TYPE
+        SYNTAX      Gauge32
+        UNITS       "/min"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION "Number of adapter commands, that were succesfully executed in last 60 seconds"
+        ::= { axbCoreObjects 201 }
+
+    adapterDuration OBJECT-TYPE
+        SYNTAX      Gauge32
+        UNITS       "ms"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION "Total duration of adapter commands executed in last 60 seconds"
+        ::= { axbCoreObjects 202 }
+
+    adapterErrors OBJECT-TYPE
+        SYNTAX      Gauge32
+        UNITS       "/min"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION "Number of adapter commands, that failed in last 60 seconds"
+        ::= { axbCoreObjects 203 }
+
+
+
+    ----------------------------------------------------------------------------
+    --  MIB Conformance definitions.
+    --
+
+    axbCoreMibComplBasic MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+            "The basic compliance statement for SNMPv2 entities
+            which implement the ERISATA-AXB-CORE-MIB."
+        MODULE
+            MANDATORY-GROUPS {
+                axbCoreRTStatsOG
+            }
+            GROUP axbCoreRTStatsOG
+            DESCRIPTION "This group is mandatory."
+        ::= { axbCoreMibCompls 1 }
+
+    axbCoreRTStatsOG OBJECT-GROUP
+        OBJECTS {flowsExecuted, flowsDuration, flowsErrors,
+                 adapterExecuted, adapterDuration, adapterErrors}
+        STATUS current
+        DESCRIPTION "Statistics collected at runtime."
+        ::= { axbCoreMibGroups 1 }
+
+
+
+END

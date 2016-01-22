@@ -14,6 +14,10 @@
 #| limitations under the License.
 #\--------------------------------------------------------------------
 REBAR=rebar
+MIBS=\
+    mibs/ERISATA-MIB.mib\
+    mibs/ERISATA-AXB-MIB.mib\
+    mibs/ERISATA-AXB-CORE-MIB.mib
 
 
 all: compile-all
@@ -31,6 +35,9 @@ docs:
 	rebar doc
 
 check: test itest
+
+smilint:
+	smilint -l 6 $(MIBS)
 
 test: compile
 	mkdir -p logs
