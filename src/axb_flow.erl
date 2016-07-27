@@ -202,6 +202,8 @@ respond(Client, Response) ->
 %%
 %%  Allows a client to wait for the asynchronous flow response.
 %%
+%%  TODO: Reuse something from the `gen' module?
+%%
 wait_response(FlowId, Timeout) ->
     receive
         {?RESPONSE, FlowId, Response} ->

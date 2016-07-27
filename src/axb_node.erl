@@ -30,6 +30,7 @@
 %%% before starting the clustering, as any other client.
 %%%
 %%% TODO: The node hangs (does not register to the manager) if adapter is started that was not marked to be waited for.
+%%% TODO: Change it to not use the FSM state timeouts to avoid race conditions.
 %%%
 -module(axb_node).
 -behaviour(gen_fsm).

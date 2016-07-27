@@ -17,6 +17,8 @@
 %%%
 %%% Behaviour for a flow manager.
 %%%
+%%% TODO: Change it to not use the FSM state timeouts to avoid race conditions.
+%%%
 -module(axb_flow_mgr).
 -behaviour(gen_fsm).
 -compile([{parse_transform, lager_transform}]).

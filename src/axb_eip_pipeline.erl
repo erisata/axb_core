@@ -17,6 +17,8 @@
 %%%
 %%% This module provides an implementation of the Pipeline EIP.
 %%%
+%%% TODO: Change it to not use the FSM state timeouts to avoid race conditions.
+%%%
 -module(axb_eip_pipeline).
 -behaviour(axb_flow).
 -compile([{parse_transform, lager_transform}]).
