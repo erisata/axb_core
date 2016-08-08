@@ -23,6 +23,8 @@
 %%%   * Collect metrics of the adapter operation;
 %%%   * Define metadata, describing the adapter.
 %%%
+%%% TODO: Add support for admin actions - predefined commands invokations.
+%%%
 -module(axb_adapter).
 -behaviour(gen_server).
 -compile([{parse_transform, lager_transform}]).
