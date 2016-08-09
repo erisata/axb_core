@@ -17,8 +17,6 @@
 %%%
 %%% This module provides an implementation of the Pipeline EIP.
 %%%
-%%% TODO: Change it to not use the FSM state timeouts to avoid race conditions.
-%%%
 -module(axb_eip_pipeline).
 -behaviour(axb_flow).
 -compile([{parse_transform, lager_transform}]).
@@ -112,7 +110,8 @@ init({Module, Args, Noreply}) ->
                 steps = Steps,
                 noreply = Noreply
             },
-            {ok, executing, StateData, 0}
+            {next_state, NextState, NewStateData} = executing(enter, StateData),
+            {ok, NextState, NewStateData}
     end.
 
 
@@ -120,7 +119,11 @@ init({Module, Args, Noreply}) ->
 %%
 %%  Single state is needed for this process.
 %%
-executing(timeout, StateData = #state{module = Module, state = State, steps = StepsLeft, noreply = Noreply}) ->
+executing(enter, StateData) ->
+    ok = gen_fsm:send_event(self(), do_execute),
+    {next_state, executing, StateData};
+
+executing(do_execute, StateData = #state{module = Module, state = State, steps = StepsLeft, noreply = Noreply}) ->
     case StepsLeft of
         [] ->
             case Noreply of
@@ -132,7 +135,7 @@ executing(timeout, StateData = #state{module = Module, state = State, steps = St
             case Module:handle_step(Step, State) of
                 {ok, NewState} ->
                     NewStateData = StateData#state{state = NewState, steps = OtherSteps},
-                    {next_state, executing, NewStateData, 0}
+                    executing(enter, NewStateData)
             end
     end.
 

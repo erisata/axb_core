@@ -30,7 +30,6 @@
 %%% before starting the clustering, as any other client.
 %%%
 %%% TODO: The node hangs (does not register to the manager) if adapter is started that was not marked to be waited for.
-%%% TODO: Change it to not use the FSM state timeouts to avoid race conditions.
 %%%
 -module(axb_node).
 -behaviour(gen_fsm).
@@ -163,7 +162,8 @@ unregister_flow_mgr(NodeName, FlowMgrName) ->
     name        :: atom(),
     mod         :: module(),
     flow_mgrs   :: [#flow_mgr{}],
-    adapters    :: [#adapter{}]
+    adapters    :: [#adapter{}],
+    waiting_tr  :: gen_fsm:reference() | undefined  %% Waiting timer reference (if any) in order to cancel the timer before the new one is set or after waiting state is left
 }).
 
 
@@ -182,13 +182,15 @@ init({NodeName, Module, Args}) ->
             StateData = #state{
                 name = NodeName,
                 mod = Module,
-                flow_mgrs = [ #flow_mgr{mod = F} || F <- FlowMgrsToWait ],
-                adapters  = [ #adapter {mod = A} || A <- AdaptersToWait ]
+                flow_mgrs  = [ #flow_mgr{mod = F} || F <- FlowMgrsToWait ],
+                adapters   = [ #adapter {mod = A} || A <- AdaptersToWait ],
+                waiting_tr = undefined
             },
-            case have_all_deps(StateData) of
-                true  -> {ok, starting_internal, StateData, 0};
-                false -> {ok, waiting, StateData, ?WAIT_INFO_DELAY}
-            end;
+            {next_state, NextState, NewStateData} = case have_all_deps(StateData) of
+                true  -> starting_internal(enter, StateData);
+                false -> waiting(enter, StateData)
+            end,
+            {ok, NextState, NewStateData};
         {stop, Reason} ->
             {stop, Reason};
         ignore ->
@@ -199,17 +201,27 @@ init({NodeName, Module, Args}) ->
 %%
 %%  The `waiting` state.
 %%
-waiting(timeout, StateData = #state{adapters = Adapters, flow_mgrs = FlowMgrs}) ->
+waiting(enter, StateData) ->
+    NewStateData = cancel_waiting_timeout(StateData),
+    NewRef = gen_fsm:send_event_after(?WAIT_INFO_DELAY, waiting_timeout),
+    {next_state, waiting, NewStateData#state{waiting_tr = NewRef}};
+
+waiting(waiting_timeout, StateData = #state{adapters = Adapters, flow_mgrs = FlowMgrs}) ->
     MissingAdapters = [ M || #adapter{mod = M,  pid = undefined} <- Adapters ],
     MissingFlowMgrs = [ N || #flow_mgr{mod = N, pid = undefined} <- FlowMgrs ],
     lager:info("Still waiting for adapters ~p and flow managers ~p", [MissingAdapters, MissingFlowMgrs]),
-    {next_state, waiting, StateData, ?WAIT_INFO_DELAY}.
+    waiting(enter, StateData#state{waiting_tr = undefined}).
 
 
 %%
 %%  The `starting_internal` state.
 %%
-starting_internal(timeout, StateData = #state{name = NodeName, adapters = Adapters}) ->
+starting_internal(enter, StateData) ->
+    NewStateData = cancel_waiting_timeout(StateData),
+    ok = gen_fsm:send_event(self(), start_internal),
+    {next_state, starting_internal, NewStateData};
+
+starting_internal(start_internal, StateData = #state{name = NodeName, adapters = Adapters}) ->
     lager:debug("Node ~p is starting internal services for all known adapters.", [NodeName]),
     StartAdapterInternalServices = fun (#adapter{mod = AdapterModule}) ->
         case is_adapter_startup_enabled(NodeName, AdapterModule) of
@@ -221,25 +233,33 @@ starting_internal(timeout, StateData = #state{name = NodeName, adapters = Adapte
         end
     end,
     ok = lists:foreach(StartAdapterInternalServices, Adapters),
-    {next_state, starting_flows, StateData, 0}.
+    starting_flows(enter, StateData).
 
 
 %%
 %%  The `starting_flows` state.
 %%
-starting_flows(timeout, StateData = #state{name = NodeName, flow_mgrs = FlowMgrs}) ->
+starting_flows(enter, StateData) ->
+    ok = gen_fsm:send_event(self(), start_flows),
+    {next_state, starting_flows, StateData};
+
+starting_flows(start_flows, StateData = #state{name = NodeName, flow_mgrs = FlowMgrs}) ->
     lager:debug("Node ~p is starting flow managers.", [NodeName]),
     StartFlowMgrs = fun (#flow_mgr{mod = FlowMgrModule}) ->
         ok = axb_flow_mgr:flow_online(NodeName, FlowMgrModule, all, true)
     end,
     ok = lists:foreach(StartFlowMgrs, FlowMgrs),
-    {next_state, starting_external, StateData, 0}.
+    starting_external(enter, StateData).
 
 
 %%
 %%  The `starting_external` state.
 %%
-starting_external(timeout, StateData = #state{name = NodeName, adapters = Adapters}) ->
+starting_external(enter, StateData) ->
+    ok = gen_fsm:send_event(self(), start_external),
+    {next_state, starting_external, StateData};
+
+starting_external(start_external, StateData = #state{name = NodeName, adapters = Adapters}) ->
     lager:debug("Node ~p is starting external services for all known adapters.", [NodeName]),
     StartAdapterExternalServices = fun (#adapter{mod = AdapterModule}) ->
         case is_adapter_startup_enabled(NodeName, AdapterModule) of
@@ -251,13 +271,13 @@ starting_external(timeout, StateData = #state{name = NodeName, adapters = Adapte
         end
     end,
     ok = lists:foreach(StartAdapterExternalServices, Adapters),
-    {next_state, ready, StateData, 0}.
+    ready(enter, StateData).
 
 
 %%
 %%  The `ready` state.
 %%
-ready(timeout, StateData = #state{name = NodeName}) ->
+ready(enter, StateData = #state{name = NodeName}) ->
     ok = axb_node_mgr:register_node(NodeName, []),
     ok = axb_stats:node_registered(NodeName),
     lager:debug("Node ~p is ready.", [NodeName]),
@@ -267,7 +287,7 @@ ready(timeout, StateData = #state{name = NodeName}) ->
 %%
 %%  All-state synchronous events.
 %%
-handle_sync_event({register_adapter, Module, Pid}, _From, StateName, StateData) ->
+handle_sync_event({register_adapter, Module, Pid}, From, StateName, StateData) ->
     #state{adapters = Adapters} = StateData,
     NewAdapter = #adapter{mod = Module, pid = Pid},
     Register = fun (NewAdapters) ->
@@ -275,9 +295,10 @@ handle_sync_event({register_adapter, Module, Pid}, _From, StateName, StateData) 
         NewStateData = StateData#state{adapters = NewAdapters},
         case StateName of
             waiting ->
+                gen_fsm:reply(From, ok),
                 case have_all_deps(NewStateData) of
-                    true ->  {reply, ok, starting_internal, NewStateData, 0};
-                    false -> {reply, ok, waiting, NewStateData, ?WAIT_INFO_DELAY}
+                    true ->  starting_internal(enter, NewStateData);
+                    false -> waiting(enter, NewStateData)
                 end;
             _ ->
                 {reply, ok, StateName, NewStateData}
@@ -294,7 +315,7 @@ handle_sync_event({register_adapter, Module, Pid}, _From, StateName, StateData) 
             {reply, {error, already_registered}, StateName, StateData}
     end;
 
-handle_sync_event({register_flow_mgr, Module, Pid}, _From, StateName, StateData) ->
+handle_sync_event({register_flow_mgr, Module, Pid}, From, StateName, StateData) ->
     #state{flow_mgrs = FlowMgrs} = StateData,
     NewFlowMgr = #flow_mgr{mod = Module, pid = Pid},
     Register = fun (NewFlowMgrs) ->
@@ -302,9 +323,10 @@ handle_sync_event({register_flow_mgr, Module, Pid}, _From, StateName, StateData)
         NewStateData = StateData#state{flow_mgrs = NewFlowMgrs},
         case StateName of
             waiting ->
+                gen_fsm:reply(From, ok),
                 case have_all_deps(NewStateData) of
-                    true ->  {reply, ok, starting_internal, NewStateData, 0};
-                    false -> {reply, ok, waiting, NewStateData, ?WAIT_INFO_DELAY}
+                    true ->  starting_internal(enter, NewStateData);
+                    false -> waiting(enter, NewStateData)
                 end;
             _ ->
                 {reply, ok, StateName, NewStateData}
@@ -314,11 +336,11 @@ handle_sync_event({register_flow_mgr, Module, Pid}, _From, StateName, StateData)
         false ->
             Register([NewFlowMgr | FlowMgrs]);
         NewFlowMgr ->
-            {reply, ok, StateName, StateData, ?WAIT_INFO_DELAY};
+            {reply, ok, StateName, StateData};
         #flow_mgr{pid = undefined} ->
             Register(lists:keyreplace(Module, #flow_mgr.mod, FlowMgrs, NewFlowMgr));
         #flow_mgr{} ->
-            {reply, {error, already_registered}, StateName, StateData, ?WAIT_INFO_DELAY}
+            {reply, {error, already_registered}, StateName, StateData}
     end;
 
 handle_sync_event({unregister_adapter, Module}, _From, StateName, StateData) ->
@@ -506,5 +528,17 @@ is_startup_enabled(Key) ->
                 false -> false
             end
     end.
+
+
+%%
+%%  Cancels the waiting_timeout timer, if one is set.
+%%
+cancel_waiting_timeout(StateData = #state{waiting_tr = undefined}) ->
+    StateData;
+
+cancel_waiting_timeout(StateData = #state{waiting_tr = Ref}) ->
+    _ = gen_fsm:cancel_timer(Ref),
+    StateData#state{waiting_tr = undefined}.
+
 
 

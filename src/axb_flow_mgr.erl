@@ -17,8 +17,6 @@
 %%%
 %%% Behaviour for a flow manager.
 %%%
-%%% TODO: Change it to not use the FSM state timeouts to avoid race conditions.
-%%%
 -module(axb_flow_mgr).
 -behaviour(gen_fsm).
 -compile([{parse_transform, lager_transform}]).
@@ -168,12 +166,13 @@ flow_online(NodeName, Module, FlowModule) ->
 %%  FSM state data.
 %%
 -record(state, {
-    node    :: atom(),
-    mod     :: module(),    %% User-defined module for the flow manager (name).
-    cbm     :: module(),    %% Callback module for the flow manager implementation.
-    cbs     :: term(),      %% Callback state for the flow manager implementation.
-    domains :: [atom()],    %% Domains, supported in this flow manager.
-    flows   :: [#flow{}]    %% Flows, managed by this manager.
+    node        :: atom(),
+    mod         :: module(),                        %% User-defined module for the flow manager (name).
+    cbm         :: module(),                        %% Callback module for the flow manager implementation.
+    cbs         :: term(),                          %% Callback state for the flow manager implementation.
+    domains     :: [atom()],                        %% Domains, supported in this flow manager.
+    flows       :: [#flow{}],                       %% Flows, managed by this manager.
+    waiting_tr  :: gen_fsm:reference() | undefined  %% Waiting timer reference (if any) in order to cancel the timer before the new one is set or after waiting state is left
 }).
 
 
@@ -198,19 +197,21 @@ init({NodeName, Module, CBModule, Args}) ->
         {ok, Domains, FlowsToWait, CBState} ->
             Flows = [ #flow{mod = F, pid = undefined, domain = undefined, online = false} || F <- FlowsToWait ],
             StateData = #state{
-                node    = NodeName,
-                mod     = Module,
-                cbm     = CBModule,
-                cbs     = CBState,
-                domains = Domains,
-                flows   = Flows
+                node        = NodeName,
+                mod         = Module,
+                cbm         = CBModule,
+                cbs         = CBState,
+                domains     = Domains,
+                flows       = Flows,
+                waiting_tr  = undefined
             },
             ok = publish_attrs(StateData),
             {ok, NewStateData} = notify_changes(Flows, StateData),
-            case have_all_deps(NewStateData) of
-                true  -> {ok, ready, NewStateData, 0};
-                false -> {ok, waiting, NewStateData, ?WAIT_INFO_DELAY}
-            end;
+            {next_state, NextState, NewStateData2} = case have_all_deps(NewStateData) of
+                true  -> ready(enter, NewStateData);
+                false -> waiting(enter, NewStateData)
+            end,
+            {ok, NextState, NewStateData2};
         {stop, Reason} ->
             {stop, Reason};
         ignore ->
@@ -221,23 +222,29 @@ init({NodeName, Module, CBModule, Args}) ->
 %%
 %%  The `waiting` state.
 %%
-waiting(timeout, StateData = #state{flows = Flows}) ->
+waiting(enter, StateData) ->
+    NewStateData = cancel_waiting_timeout(StateData),
+    NewRef = gen_fsm:send_event_after(?WAIT_INFO_DELAY, waiting_timeout),
+    {next_state, waiting, NewStateData#state{waiting_tr = NewRef}};
+
+waiting(waiting_timeout, StateData = #state{flows = Flows}) ->
     MissingFlows = [ M || #flow{mod = M, pid = undefined} <- Flows ],
     lager:info("Still waiting for flows ~p.", [MissingFlows]),
-    {next_state, waiting, StateData, ?WAIT_INFO_DELAY}.
+    waiting(enter, StateData#state{waiting_tr = undefined}).
 
 
 %%
 %%  The `ready` state.
 %%
-ready(timeout, StateData = #state{node = NodeName, mod = Module, domains = Domains}) ->
+ready(enter, StateData = #state{node = NodeName, mod = Module, domains = Domains}) ->
+    NewStateData = cancel_waiting_timeout(StateData),
     ok = axb_node:register_flow_mgr(NodeName, Module, []),
     ok = axb_stats:flow_mgr_registered(NodeName, Module, Domains),
     lager:debug("Flow manager ~p is ready at node ~p.", [Module, NodeName]),
-    {next_state, ready, StateData}.
+    {next_state, ready, NewStateData}.
 
 
-handle_sync_event({register_flow, FlowDomain, FlowModule, Online, FlowPid}, _From, StateName, StateData) ->
+handle_sync_event({register_flow, FlowDomain, FlowModule, Online, FlowPid}, From, StateName, StateData) ->
     #state{node = NodeName, mod = Module, flows = Flows, domains = Domains} = StateData,
     true = lists:member(FlowDomain, Domains),
     NewFlow = #flow{mod = FlowModule, pid = FlowPid, domain = FlowDomain, online = Online},
@@ -247,27 +254,24 @@ handle_sync_event({register_flow, FlowDomain, FlowModule, Online, FlowPid}, _Fro
         NewStateData = StateData#state{flows = NewFlows},
         case StateName of
             waiting ->
+                gen_fsm:reply(From, ok),
                 case have_all_deps(NewStateData) of
-                    true ->  {reply, ok, ready,   NewStateData, 0};
-                    false -> {reply, ok, waiting, NewStateData, ?WAIT_INFO_DELAY}
+                    true ->  ready(enter, NewStateData);
+                    false -> waiting(enter, NewStateData)
                 end;
             _ ->
                 {reply, ok, StateName, NewStateData}
         end
     end,
-    StateTimeout = case StateName of
-        waiting -> ?WAIT_INFO_DELAY;
-        ready   -> infinity
-    end,
     case lists:keyfind(FlowModule, #flow.mod, Flows) of
         false ->
             Register([NewFlow | Flows]);
         NewFlow ->
-            {reply, ok, StateName, StateData, StateTimeout};
+            {reply, ok, StateName, StateData};
         #flow{pid = undefined} ->
             Register(lists:keyreplace(FlowModule, #flow.mod, Flows, NewFlow));
         #flow{} ->
-            {reply, {error, already_registered}, StateName, StateData, StateTimeout}
+            {reply, {error, already_registered}, StateName, StateData}
     end;
 
 handle_sync_event({unregister_flow, FlowModule}, _From, StateName, StateData) ->
@@ -440,5 +444,17 @@ notify_changes(ChangedFlows, StateData = #state{cbm = CBModule, cbs = CBState}) 
     end,
     NewCBState = lists:foldr(NotifyChanges, CBState, ChangedFlows),
     {ok, StateData#state{cbs = NewCBState}}.
+
+
+%%
+%%  Cancels the waiting_timeout timer, if one is set.
+%%
+cancel_waiting_timeout(StateData = #state{waiting_tr = undefined}) ->
+    StateData;
+
+cancel_waiting_timeout(StateData = #state{waiting_tr = Ref}) ->
+    _ = gen_fsm:cancel_timer(Ref),
+    StateData#state{waiting_tr = undefined}.
+
 
 
