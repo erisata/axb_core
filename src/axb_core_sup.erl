@@ -47,6 +47,7 @@ start_link() ->
 %%
 init({}) ->
     {ok, {{one_for_all, 100, 10}, [
+        axb_node_events:start_spec(),
         axb_node_mgr:start_spec()
     ]}}.
 

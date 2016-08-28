@@ -280,6 +280,7 @@ starting_external(start_external, StateData = #state{name = NodeName, adapters =
 ready(enter, StateData = #state{name = NodeName}) ->
     ok = axb_node_mgr:register_node(NodeName, []),
     ok = axb_stats:node_registered(NodeName),
+    ok = axb_node_events:node_state_changed(NodeName, {state, ready}),
     lager:debug("Node ~p is ready.", [NodeName]),
     {next_state, ready, StateData}.
 

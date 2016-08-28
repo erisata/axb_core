@@ -314,7 +314,12 @@ handle_sync_event({info, What}, _From, StateName, StateData) ->
     end,
     {reply, Reply, StateName, StateData};
 
-handle_sync_event({flow_online, FlowNames, Online}, _From, StateName, StateData = #state{flows = Flows}) ->
+handle_sync_event({flow_online, FlowNames, Online}, _From, StateName, StateData) ->
+    #state{
+        node = NodeName,
+        mod  = Module,
+        flows = Flows
+    } = StateData,
     lager:debug("Updating flow statuses, names=~p, online=~p", [FlowNames, Online]),
     UpdateFlowStatus = fun
         (F = #flow{mod = M, domain = D, online = O}, {UpdatedFlows, FlowChanges}) when O =/= Online ->
@@ -331,6 +336,7 @@ handle_sync_event({flow_online, FlowNames, Online}, _From, StateName, StateData 
     {NewFlows, FlowChanges} = lists:foldl(UpdateFlowStatus, {[], []}, Flows),
     NewStateData = StateData#state{flows = lists:reverse(NewFlows)},
     ok = publish_attrs(NewStateData),
+    ok = axb_node_events:node_state_changed(NodeName, {flow_mgr, Module, flow_state}),
     {ok, StateDataAfterNotify} = notify_changes(FlowChanges, NewStateData),
     {reply, ok, StateName, StateDataAfterNotify}.
 

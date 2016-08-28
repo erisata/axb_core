@@ -220,6 +220,7 @@ handle_call({domain_online, DomainNames, Direction, Online}, _From, State) ->
         ok = Module:domain_changed(Dom, D, O)
     end,
     ok = lists:foreach(NotifyActionsFun, ServActions),
+    ok = axb_node_events:node_state_changed(NodeName, {adapter, Module, domain_state}),
     NewState = State#state{domains = NewDomains},
     {reply, ok, NewState};
 
