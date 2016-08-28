@@ -53,7 +53,7 @@
 start_spec() ->
     SpecId = ?MODULE,
     StartSpec = {?MODULE, start_link, []},
-    {SpecId, StartSpec, permanent, brutal_kill, worker, [?MODULE]}.
+    {SpecId, StartSpec, permanent, brutal_kill, worker, dynamic}.
 
 
 %%
