@@ -18,6 +18,14 @@
 %%% Collects and provides runtime statictics.
 %%% Implemented using Exometer.
 %%%
+%%% Metric types are represented by name suffixes:
+%%%
+%%%   * epm -- executions / minute      (spiral).
+%%%   * epd -- executions / day         (day_slots).
+%%%   * err -- errors     / minute      (spiral).
+%%%   * erd -- errors     / day         (day_slots).
+%%%   * dur -- exec time in last min.   (spiral)???
+%%%
 -module(axb_stats).
 -compile([{parse_transform, lager_transform}]).
 -export([
@@ -46,16 +54,20 @@ info(list) ->
 
 info(main) ->
     AdapterInfoFun = fun ([axb, Node, ad, Ad, Dom, Dir, Cmd, epm]) ->
-        Epm = get_optional([axb, Node, ad, Ad, Dom, Dir, Cmd, epm], one),
-        Err = get_optional([axb, Node, ad, Ad, Dom, Dir, Cmd, err], one),
-        Dur = get_optional([axb, Node, ad, Ad, Dom, Dir, Cmd, dur], one), % TODO: Use mean or average instead of count.
-        {[axb, Node, ad, Ad, Dom, Dir, Cmd], Epm, Dur, Err}
+        Epm             = get_optional([axb, Node, ad, Ad, Dom, Dir, Cmd, epm], one),
+        [Eph, Epd, Epl] = get_optional([axb, Node, ad, Ad, Dom, Dir, Cmd, epd], [h0, d0, last]),
+        Err             = get_optional([axb, Node, ad, Ad, Dom, Dir, Cmd, err], one),
+        [Erh, Erd, Erl] = get_optional([axb, Node, ad, Ad, Dom, Dir, Cmd, erd], [h0, d0, last]),
+        Dur             = get_optional([axb, Node, ad, Ad, Dom, Dir, Cmd, dur], one), % TODO: Use mean or average instead of count.
+        {[axb, Node, ad, Ad, Dom, Dir, Cmd], Epm, Eph, Epd, Epl, Err, Erh, Erd, Erl, Dur}
     end,
     FlowMgrInfoFun = fun ([axb, Node, fm, FM, Dom, Flow, epm]) ->
-        Epm = get_optional([axb, Node, fm, FM, Dom, Flow, epm], one),
-        Err = get_optional([axb, Node, fm, FM, Dom, Flow, err], one),
-        Dur = get_optional([axb, Node, fm, FM, Dom, Flow, dur], one),
-        {[axb, Node, fm, FM, Dom, Flow], Epm, Dur, Err}
+        Epm             = get_optional([axb, Node, fm, FM, Dom, Flow, epm], one),
+        [Eph, Epd, Epl] = get_optional([axb, Node, fm, FM, Dom, Flow, epd], [h0, d0, last]),
+        Err             = get_optional([axb, Node, fm, FM, Dom, Flow, err], one),
+        [Erh, Erd, Erl] = get_optional([axb, Node, fm, FM, Dom, Flow, erd], [h0, d0, last]),
+        Dur             = get_optional([axb, Node, fm, FM, Dom, Flow, dur], one),
+        {[axb, Node, fm, FM, Dom, Flow], Epm, Eph, Epd, Epl, Err, Erh, Erd, Erl, Dur}
     end,
     AdapterEpmNames = [ N || {N, _T, _E} <- exometer:find_entries([axb, '_', ad, '_', '_', '_', '_', epm]) ],
     FlowMgrEpmNames = [ N || {N, _T, _E} <- exometer:find_entries([axb, '_', fm, '_', '_',      '_', epm]) ],
@@ -120,10 +132,12 @@ adapter_registered(NodeName, AdapterModule, Domains) ->
 %%  Updates adapter command execution stats.
 %%
 adapter_command_executed(NodeName, AdapterModule, Domain, Direction, Command, error) ->
-    ok = inc_spiral([axb, NodeName, ad, AdapterModule, Domain, Direction, Command, err]);
+    ok = inc_spiral([axb, NodeName, ad, AdapterModule, Domain, Direction, Command, err]),
+    ok = inc_day_sl([axb, NodeName, ad, AdapterModule, Domain, Direction, Command, erd]);
 
 adapter_command_executed(NodeName, AdapterModule, Domain, Direction, Command, DurationUS) when is_integer(DurationUS) ->
     ok = inc_spiral([axb, NodeName, ad, AdapterModule, Domain, Direction, Command, epm]),
+    ok = inc_day_sl([axb, NodeName, ad, AdapterModule, Domain, Direction, Command, epd]),
     ok = update_spiral([axb, NodeName, ad, AdapterModule, Domain, Direction, Command, dur], DurationUS).
 
 
@@ -152,19 +166,23 @@ flow_mgr_registered(NodeName, FlowMgrModule, Domains) ->
 %%
 %%
 flow_registered(NodeName, FlowMgrModule, Domain, FlowModule) ->
-    ok = exometer:ensure([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, err], spiral, []),
-    ok = exometer:ensure([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, epm], spiral, []),
-    ok = exometer:ensure([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, dur], spiral, []).
+    ok = exometer:ensure([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, err], spiral,    []),
+    ok = exometer:ensure([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, erd], day_slots, []),
+    ok = exometer:ensure([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, epm], spiral,    []),
+    ok = exometer:ensure([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, epd], day_slots, []),
+    ok = exometer:ensure([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, dur], spiral,    []).
 
 
 %%
 %%
 %%
 flow_executed(NodeName, FlowMgrModule, Domain, FlowModule, error) ->
-    ok = inc_spiral([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, err]);
+    ok = inc_spiral([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, err]),
+    ok = inc_day_sl([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, erd]);
 
 flow_executed(NodeName, FlowMgrModule, Domain, FlowModule, DurationUS) when is_integer(DurationUS) ->
     ok = inc_spiral([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, epm]),
+    ok = inc_day_sl([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, epd]),
     ok = update_spiral([axb, NodeName, fm, FlowMgrModule, Domain, FlowModule, dur], DurationUS).
 
 
@@ -180,6 +198,7 @@ get_flow_value(NodeName, FlowMgrModule, Domain, FlowModule, Type) ->
 %%
 get_adapter_value(NodeName, AdapterModule, Domain, Direction, Command, Type) ->
     get_value_spiral([axb, NodeName, ad, AdapterModule, Domain, Direction, Command, Type]).
+
 
 
 %%% ============================================================================
@@ -203,6 +222,19 @@ update_spiral(Name, Value) ->
 %%
 %%
 %%
+inc_day_sl(Name) ->
+    ok = exometer:update_or_create(Name, 1, day_slots, []).
+
+
+%%
+%%
+%%
+get_optional(Name, DataPoints) when is_list(DataPoints) ->
+    case exometer:get_value(Name, DataPoints) of
+        {ok, Values}       -> Values;
+        {error, not_found} -> [ 0 || _ <- DataPoints ]
+    end;
+
 get_optional(Name, DataPoint) ->
     case exometer:get_value(Name, DataPoint) of
         {ok, [{DataPoint, Val}]} -> Val;

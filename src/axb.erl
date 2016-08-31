@@ -149,10 +149,10 @@ i(stats) ->
         io:format("+-~-15c-+-~-15c-+-~-15c-+-~-64c-~n", [$-, $-, $-, $-])
     end,
     PrintStatHdrFun = fun () ->
-        io:format("| ~-15s | ~-15s | ~-15s | ~s~n", ["Err/min", "Exec/min", "Time mean [ms]", "What"])
+        io:format("| ~-15s | ~-15s | ~-15s | ~s~n", ["Ops/min", "Err/min", "Time mean [ms]", "What"])
     end,
-    PrintStatLineFun = fun ({Name, ExecutionsPerMinute, DurationMean, ErrorsPerMinute}) ->
-        io:format("| ~15B | ~15B | ~15.3f | ~w~n", [ErrorsPerMinute, ExecutionsPerMinute, DurationMean / 1000, Name])
+    PrintStatLineFun = fun ({Name, Epm, _Eph, _Epd, _Epl, Err, _Erh, _Erd, _Erl, Dur}) ->
+        io:format("| ~15B | ~15B | ~15.3f | ~w~n", [Epm, Err, Dur / 1000, Name])
     end,
     PrintStatSepFun(),
     PrintStatHdrFun(),

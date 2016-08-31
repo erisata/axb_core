@@ -108,13 +108,12 @@ probe_update(Increment, State) ->
 %%
 %%
 probe_get_value(DataPoints, State) ->
-     #state{
-        last = Last,
+    {LastBefore, #state{
         h0 = H0, h1 = H1, h2 = H2, h3 = H3,
         d0 = D0, d1 = D1, d2 = D2, d3 = D3
-    } = val(State),
+    }} = val(State),
     DPVal = fun
-        (last) -> Last;
+        (last) -> LastBefore;
         (h0  ) -> H0;
         (h1  ) -> H1;
         (h2  ) -> H2;
@@ -177,9 +176,13 @@ upd(Inc, State) ->
 %%
 %%
 %%
-val(State) ->
+val(State = #state{last = Last}) ->
     Now = erlang:system_time(seconds),
-    upd_d(Now, 0, upd_h(Now, 0, State)).
+    LastBefore = case Last of
+        undefined -> undefined;
+        _         -> Now - Last
+    end,
+    {LastBefore, upd_d(Now, 0, upd_h(Now, 0, State))}.
 
 
 %%
