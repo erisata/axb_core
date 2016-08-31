@@ -49,6 +49,7 @@ get_env(Name, Default) ->
 %% Start the application.
 %%
 start(_StartType, _StartArgs) ->
+    ok = axb_stats_day_slots:register(),
     ok = validate_env(application:get_all_env()),
     SnmpAgent = enomon_snmp:load_application_mib(?APP, ?MODULE, "ERISATA-AXB-MIB"),
     {ok, Pid} = axb_core_sup:start_link(),
