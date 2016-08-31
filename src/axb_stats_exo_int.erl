@@ -17,6 +17,9 @@
 %%%
 %%% Exometer metric counting events in fixed intervals.
 %%%
+%%% TODO: Decide, how to store the data. It should be read and saved
+%%%     on each update. Maybe it should be implemented as a probe.
+%%%
 -module(axb_stats_exo_int).
 -behaviour(exometer_entry).
 -compile([{parse_transform, lager_transform}]).
@@ -24,6 +27,18 @@
 
 -define(H_SECS, 3600).
 -define(D_SECS, 86400).
+
+
+%%% ============================================================================
+%%% Internal data structures.
+%%% ============================================================================
+
+-record(st, {
+    last,
+    ht, h0, h1, h2, h3,
+    dt, d0, d1, d2, d3
+}).
+
 
 
 %%% ============================================================================
@@ -40,21 +55,21 @@ behaviour() ->
 %%
 %%
 %%
-new(Name, Type, Opts) ->
+new(_Name, _Type, _Opts) ->
     ok.
 
 
 %%
 %%
 %%
-delete(Name, Type, Ref) ->
+delete(_Name, _Type, _Ref) ->
     ok.
 
 
 %%
 %%
 %%
-get_value(Name, Type, Ref, DataPoints) ->
+get_value(_Name, _Type, _Ref, _DataPoints) ->
     [
         {this, todo},
         {prev, todo},
@@ -65,14 +80,14 @@ get_value(Name, Type, Ref, DataPoints) ->
 %%
 %%
 %%
-update(Name, Value, Type, Ref) ->
+update(_Name, _Value, _Type, _Ref) ->
     ok.
 
 
 %%
 %%
 %%
-reset(Name, Type, Ref) ->
+reset(_Name, _Type, _Ref) ->
     ok.
 
 
@@ -99,20 +114,43 @@ setopts(_Entry, _Options, _Status) ->
 
 
 %%% ============================================================================
-%%% Callbacks for exometer_entry.
+%%% Internal functions.
 %%% ============================================================================
 
-
--record(st, {
-    last,
-    ht, h0, h1, h2, h3,
-    dt, d0, d1, d2, d3
-}).
-
+%%
+%%
+%%
 upd(N, St) ->
     Now = erlang:system_time(seconds),
     upd_d(Now, N, upd_h(Now, N, St#st{last = Now})).
 
+
+%%
+%%
+%%
+val(St) ->
+    Now = erlang:system_time(seconds),
+    #st{
+        last = Last,
+        h0 = H0, h1 = H1, h2 = H2, h3 = H3,
+        d0 = D0, d1 = D1, d2 = D2, d3 = D3
+    } = upd_d(Now, 0, upd_h(Now, 0, St)),
+    [
+        {last, Last},
+        {h0,   H0},
+        {h1,   H1},
+        {h2,   H2},
+        {h3,   H3},
+        {d0,   D0},
+        {d1,   D1},
+        {d2,   D2},
+        {d3,   D3}
+    ].
+
+
+%%
+%%
+%%
 upd_h(Now, N, St = #st{ht = unefined}) ->
     HT = Now - Now rem ?H_SECS,
     St#st{ht = HT, h0 = N, h1 = 0, h2 = 0, h3 = 0};
@@ -120,10 +158,13 @@ upd_h(Now, N, St = #st{ht = unefined}) ->
 upd_h(Now, N, St = #st{ht = HT, h0 = H0, h1 = H1, h2 = H2}) when Now >= HT ->
     upd_h(Now, N, St#st{ht = HT + ?H_SECS, h0 = 0, h1 = H0, h2 = H1, h3 = H2});
 
-upd_h(Now, N, St = #st{h0 = H0}) ->
+upd_h(_Now, N, St = #st{h0 = H0}) ->
     St#st{h0 = H0 + N}.
 
 
+%%
+%%
+%%
 upd_d(Now, N, St = #st{dt = unefined}) ->
     DT = Now - Now rem ?D_SECS,
     St#st{dt = DT, d0 = N, d1 = 0, d2 = 0, d3 = 0};
@@ -131,12 +172,7 @@ upd_d(Now, N, St = #st{dt = unefined}) ->
 upd_d(Now, N, St = #st{dt = DT, d0 = D0, d1 = D1, d2 = D2}) when Now >= DT ->
     upd_d(Now, N, St#st{dt = DT + ?D_SECS, d0 = 0, d1 = D0, d2 = D1, d3 = D2});
 
-upd_d(Now, N, St = #st{d0 = D0}) ->
+upd_d(_Now, N, St = #st{d0 = D0}) ->
     St#st{d0 = D0 + N}.
-
-
-
-
-
 
 
