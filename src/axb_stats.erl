@@ -229,16 +229,23 @@ inc_day_sl(Name) ->
 %%
 %%
 %%
+default_value(last) -> undefined;
+default_value(_   ) -> 0.
+
+
+%%
+%%
+%%
 get_optional(Name, DataPoints) when is_list(DataPoints) ->
     case exometer:get_value(Name, DataPoints) of
         {ok, Values}       -> Values;
-        {error, not_found} -> [ 0 || _ <- DataPoints ]
+        {error, not_found} -> [ default_value(DP) || DP <- DataPoints ]
     end;
 
 get_optional(Name, DataPoint) ->
     case exometer:get_value(Name, DataPoint) of
         {ok, [{DataPoint, Val}]} -> Val;
-        {error, not_found} -> 0
+        {error, not_found} -> default_value(DataPoint)
     end.
 
 

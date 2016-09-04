@@ -179,8 +179,8 @@ upd(Inc, State) ->
 val(State = #state{last = Last}) ->
     Now = erlang:system_time(seconds),
     LastBefore = case Last of
-        undefined -> undefined;
-        _         -> Now - Last
+        undefined              -> undefined;
+        _ when is_number(Last) -> Now - Last
     end,
     {LastBefore, upd_d(Now, 0, upd_h(Now, 0, State))}.
 
