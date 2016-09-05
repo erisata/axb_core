@@ -372,6 +372,7 @@ handle_sync_event({unregister_flow_mgr, Module}, _From, StateName, StateData) ->
 
 handle_sync_event({info, What}, _From, StateName, StateData) ->
     #state{
+        mod = Mod,
         adapters = Adapters,
         flow_mgrs = FlowMgrs
     } = StateData,
@@ -385,7 +386,41 @@ handle_sync_event({info, What}, _From, StateName, StateData) ->
                 {M, flow_mgr_status(F)} || F = #flow_mgr{mod = M} <- FlowMgrs
             ]};
         details ->
+            {RelName, RelVersion, _RelApps, RelStatus} = case release_handler:which_releases(current) of
+                [Rel] ->
+                    Rel;
+                [] ->
+                    case release_handler:which_releases(permanent) of
+                        [Rel] -> Rel;
+                        []    -> {undefined, undefined, undefined, undefined}
+                    end
+            end,
+            {AppName, AppDesc, AppVersion} = case application:get_application(Mod) of
+                undefined ->
+                    {undefined, undefined, undefined};
+                {ok, NodeAppName} ->
+                    case lists:keyfind(NodeAppName, 1, application:which_applications()) of
+                        false -> {undefined, undefined, undefined};
+                        App   -> App
+                    end
+            end,
+            {UptimeMS, _} = erlang:statistics(wall_clock),
             {ok, [
+                {erlang_app, [
+                    {name,          AppName},
+                    {description,   AppDesc},
+                    {version,       AppVersion}
+                ]},
+                {erlang_rel, [
+                    {name,      RelName},
+                    {version,   RelVersion},
+                    {status,    RelStatus}
+                ]},
+                {erlang_node, [
+                    {otp_release,   erlang:system_info(otp_release)},
+                    {node_name,     erlang:node()},
+                    {node_uptime,   UptimeMS div 1000}
+                ]},
                 {adapters, [
                     {M, [
                         {status, adapter_status(A)}
