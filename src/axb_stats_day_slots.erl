@@ -188,8 +188,8 @@ val(State = #state{last = Last}) ->
 %%
 %%
 %%
-upd_h(Now, Inc, State = #state{ht = unefined}) ->
-    HT = Now - Now rem ?H_SECS,
+upd_h(Now, Inc, State = #state{ht = undefined}) ->
+    HT = Now - Now rem ?H_SECS + ?H_SECS,
     State#state{ht = HT, h0 = Inc, h1 = 0, h2 = 0, h3 = 0};
 
 upd_h(Now, Inc, State = #state{ht = HT, h0 = H0, h1 = H1, h2 = H2}) when Now >= HT ->
@@ -202,8 +202,8 @@ upd_h(_Now, Inc, State = #state{h0 = H0}) ->
 %%
 %%
 %%
-upd_d(Now, Inc, State = #state{dt = unefined}) ->
-    DT = Now - Now rem ?D_SECS,
+upd_d(Now, Inc, State = #state{dt = undefined}) ->
+    DT = Now - Now rem ?D_SECS + ?D_SECS,
     State#state{dt = DT, d0 = Inc, d1 = 0, d2 = 0, d3 = 0};
 
 upd_d(Now, Inc, State = #state{dt = DT, d0 = D0, d1 = D1, d2 = D2}) when Now >= DT ->
@@ -211,5 +211,19 @@ upd_d(Now, Inc, State = #state{dt = DT, d0 = D0, d1 = D1, d2 = D2}) when Now >= 
 
 upd_d(_Now, Inc, State = #state{d0 = D0}) ->
     State#state{d0 = D0 + Inc}.
+
+
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+upd_h_test() ->
+    S0 = #state{},
+    S1 = #state{ht = 3603600, h0 = 1, h1 = 0, h2 = 0, h3 = 0} = upd_h(3600100, 1, S0),
+    S2 = #state{ht = 3603600, h0 = 2, h1 = 0, h2 = 0, h3 = 0} = upd_h(3600200, 1, S1),
+         #state{ht = 3607200, h0 = 1, h1 = 2, h2 = 0, h3 = 0} = upd_h(3603700, 1, S2),
+    ok.
+
+-endif.
 
 
