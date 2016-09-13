@@ -353,6 +353,9 @@ test_info(_Config) ->
     {ok, [
         {axb_itest, [
             {status, running},
+            {erlang_app, _},
+            {erlang_rel, _},
+            {erlang_node, _},
             {adapters, [
                 {axb_itest_adapter, [
                     {status, running},
@@ -508,6 +511,9 @@ test_console(_Config) ->
     {ok, [
         {axb_itest, [
             {status, running},
+            {erlang_app, _},
+            {erlang_rel, _},
+            {erlang_node, _},
             {adapters, [
                 {axb_itest_adapter, [
                     {status, running},
@@ -537,6 +543,9 @@ test_console(_Config) ->
     {ok, [
         {axb_itest, [
             {status, running},
+            {erlang_app, _},
+            {erlang_rel, _},
+            {erlang_node, _},
             {adapters, [
                 {axb_itest_adapter, [
                     {status, running},
