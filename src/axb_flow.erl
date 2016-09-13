@@ -366,16 +366,17 @@ code_change(OldVsn, StateName, StateData, Extra) ->
 %%
 %%  Generic function for delegating calls to `gen_fsm`.
 %%
-delegate(StateName, StateData, {Module, Function, Args}) ->
+delegate(StateName, StateData, {CBModule, Function, Args}) ->
     #state{
         node       = NodeName,
         mgr        = MgrModule,
         dom        = Domain,
+        mod        = Module,
         start_time = StartTime,
         related    = Related
     } = StateData,
     ok = related_ids_setup(),
-    Result = erlang:apply(Module, Function, Args),
+    Result = erlang:apply(CBModule, Function, Args),
     NewRelated = related_ids_collect(Related),
     HandleStop = fun () ->
         DurationUS = timer:now_diff(os:timestamp(), StartTime),
