@@ -21,8 +21,8 @@
 -module(axb_itest_adapter).
 -behaviour(axb_adapter).
 -compile([{parse_transform, lager_transform}]).
--export([start_link/1, send_message/1, message_received/1, test_crash/0, test_context_ext/0, test_context_int/0]).
--export([provided_domains/1, domain_changed/3]).
+-export([start_link/1, start_link/2, send_message/1, message_received/2, test_crash/0, test_context_ext/0, test_context_int/0]).
+-export([init/1, domain_change/4, code_change/3]).
 
 
 %%% =============================================================================
@@ -30,26 +30,38 @@
 %%% =============================================================================
 
 %%
-%%
+%%  Adapters can be started anonymous. In that case you can access them
+%%  by using PID or {via, axb, {adapter, NodeName, AdapterName}}.
 %%
 start_link(Mode) ->
-    axb_adapter:start_link(axb_itest_node:name(), ?MODULE, Mode, []).
+    NodeName = axb_itest_node:name(),
+    AdapterName = ?MODULE,
+    AdapterCBMod = ?MODULE,
+    AdapterArg = Mode,
+    axb_adapter:start_link(NodeName, AdapterName, AdapterCBMod, AdapterArg, []).
+
+%%
+%%  Adapters can be registered explicitly. In that case, they will be accessible
+%%  by several registrations (the explicit one, and the {via, axb, ...}).
+%%
+start_link(AdapterName, Mode) ->
+    axb_adapter:start_link({local, AdapterName}, axb_itest_node:name(), AdapterName, ?MODULE, Mode, []).
 
 
 %%
 %%  Business-specific function.
 %%
-send_message(SomeArg) ->
+send_message(Message) ->
     axb_adapter:command(axb_itest_node:name(), ?MODULE, main, internal, send_message, fun () ->
-        {ok, SomeArg}
+        {ok, Message}
     end).
 
 %%
 %%  Business-specific function.
 %%
-message_received(SomeArg) ->
+message_received(Message, _Sender) ->
     axb_adapter:command(axb_itest_node:name(), ?MODULE, main, external, message_received, fun () ->
-        {ok, SomeArg}
+        {ok, Message}
     end).
 
 
@@ -85,20 +97,67 @@ test_context_int() ->
 
 
 %%% =============================================================================
+%%% Internal data structures.
+%%% =============================================================================
+
+-record(state, {
+    arg :: term()
+}).
+
+
+
+%%% =============================================================================
 %%% Callbacks for `axb_adapter`.
 %%% =============================================================================
 
 %%
-%%  Returns a list of domains, provided by this adapter.
 %%
-provided_domains(empty) ->
-    {ok, []};
+%%
+init(empty) ->
+    {ok, #{domains => #{}}, #state{arg = empty}};
 
-provided_domains(single) ->
-    {ok, [main]}.
+init(single) ->
+    AdapterSpec = #{
+        description => "Single-domain adapter.",
+        domains => #{
+            main => #{
+                test_crash => internal
+            }
+        }
+    },
+    {ok, AdapterSpec, #state{arg = single}};
+
+init(Arg) ->
+    AdapterSpec = #{
+        description => "This is my test adapter. It is used to do good things :)",
+        domains => #{
+            main => #{
+                test_crash => internal
+            },
+            context => #{
+                test_context_int => #{direction => internal},
+                test_context_ext => #{direction => external}
+            },
+            message => #{
+                send_message     => #{direction => internal, user_args => ["some_message"]},
+                message_received => #{direction => external, user_args => [<<"message">>, sender]}
+            }
+        }
+    },
+    {ok, AdapterSpec, #state{arg = Arg}}.
+
 
 %%
 %%  Receives notification on a domain state change.
 %%
-domain_changed(_ServiceName, _Direction, _Online) ->
-    ok.
+domain_change(_ServiceName, _Direction, _Online, State) ->
+    {ok, State}.
+
+
+%%
+%%
+%%
+code_change(AdapterSpec, State, _Extra) ->
+    {ok, AdapterSpec, State}.
+
+

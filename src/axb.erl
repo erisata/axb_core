@@ -22,6 +22,10 @@
 -module(axb).
 -compile([{parse_transform, lager_transform}]).
 -export([start/0, info/0, info/1, i/0, i/1, make_id/0]).
+-export([gproc_name/1, gproc_reg/1, gproc_reg/2, gproc_where/1, gproc_set_value/2, gproc_lookup_value/1]).
+-export([register_name/2, unregister_name/1, whereis_name/1, send/2]).
+
+-define(GPROC_NAME(Name), {n, l, Name}).
 
 
 %%% =============================================================================
@@ -169,5 +173,88 @@ make_id() ->
     IdTerm = {erlang:node(), erlang:monotonic_time(), erlang:unique_integer([monotonic])},
     SHA = crypto:hash(sha, erlang:term_to_binary(IdTerm)),
     iolist_to_binary([io_lib:format("~2.16.0B", [X]) || X <- binary_to_list(SHA)]).
+
+
+
+%%% ============================================================================
+%%% Some wrappers and helpers for the GProc.
+%%% They are here to hide the GPROC_NAME macro.
+%%% See axb_node:reg/1, axb_adapter:reg/2, etc. for obtaining valid names.
+%%% ============================================================================
+
+%%
+%%  Convert AxB name to the corresponing GProc Name.
+%%
+gproc_name(Name) ->
+    ?GPROC_NAME(Name).
+
+
+%%
+%%  Wrapper for GProc.
+%%
+gproc_reg(Name) ->
+    gproc:reg(?GPROC_NAME(Name)).
+
+
+%%
+%%  Wrapper for GProc.
+%%
+gproc_reg(Name, Value) ->
+    gproc:reg(?GPROC_NAME(Name), Value).
+
+
+%%
+%%  Wrapper for GProc.
+%%
+gproc_where(Name) ->
+    gproc:where(?GPROC_NAME(Name)).
+
+
+%%
+%%  Wrapper for GProc.
+%%
+gproc_set_value(Name, Value) ->
+    gproc:set_value(?GPROC_NAME(Name), Value).
+
+
+%%
+%%  Wrapper for GProc.
+%%
+gproc_lookup_value(Name) ->
+    gproc:lookup_value(?GPROC_NAME(Name)).
+
+
+
+%%% ============================================================================
+%%% Callbacks for OTP Process Registry.
+%%% This allows to reference AxB components like `{via, axb, axb_node:ref(NodeName)}'.
+%%% ============================================================================
+
+%%
+%%  Just a wrapper for GProc.
+%%
+register_name(Name, Pid) ->
+    gproc:register_name(?GPROC_NAME(Name), Pid).
+
+
+%%
+%%  Just a wrapper for GProc.
+%%
+unregister_name(Name) ->
+    gproc:unregister_name(?GPROC_NAME(Name)).
+
+
+%%
+%%  Just a wrapper for GProc.
+%%
+whereis_name(Name) ->
+    gproc:whereis_name(?GPROC_NAME(Name)).
+
+
+%%
+%%  Just a wrapper for GProc.
+%%
+send(Name, Message) ->
+    gproc:send(?GPROC_NAME(Name), Message).
 
 

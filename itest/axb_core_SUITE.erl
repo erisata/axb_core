@@ -1,5 +1,5 @@
 %/--------------------------------------------------------------------
-%| Copyright 2013-2015 Erisata, UAB (Ltd.)
+%| Copyright 2013-2016 Erisata, UAB (Ltd.)
 %|
 %| Licensed under the Apache License, Version 2.0 (the "License");
 %| you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@
 %%
 -module(axb_core_SUITE).
 -compile([{parse_transform, lager_transform}]).
--export([all/0, init_per_suite/1, end_per_suite/1]).
+-export([all/0, init_per_suite/1, end_per_suite/1, init_per_testcase/2, end_per_testcase/2]).
 -export([
     test_node_registration/1,
     test_adapter_registration/1,
@@ -81,6 +81,22 @@ end_per_suite(Config) ->
     ok.
 
 
+%%
+%%  Log test case name at start
+%%
+init_per_testcase(TestCase, Config) ->
+    lager:debug("-------------------------------------- ~p start", [TestCase]),
+    Config.
+
+
+%%
+%%  Log test case name at end
+%%
+end_per_testcase(TestCase, _Config) ->
+    lager:debug("-------------------------------------- ~p end", [TestCase]),
+    ok.
+
+
 have_node(Name) ->
     {ok, Nodes} = axb:info(nodes),
     lists:member({Name, running}, Nodes).
@@ -88,7 +104,7 @@ have_node(Name) ->
 
 unlink_kill(Pid) ->
     erlang:unlink(Pid),
-    erlang:exit(Pid, kill),
+    erlang:exit(Pid, shutdown),
     ok.
 
 
@@ -100,7 +116,6 @@ unlink_kill(Pid) ->
 %%  Check is node registration / unregistration works.
 %%
 test_node_registration(_Config) ->
-    lager:debug("Testcase test_node_registration - start"),
     Node = axb_itest_node:name(),
     false = have_node(Node),
     % Start the node.
@@ -120,7 +135,6 @@ test_node_registration(_Config) ->
 %%  if the node waits for adapters.
 %%
 test_adapter_registration(_Config) ->
-    lager:debug("Testcase test_adapter_registration - start"),
     Node = axb_itest_node:name(),
     %
     % Start the node, it should wait for the adapter.
@@ -134,6 +148,7 @@ test_adapter_registration(_Config) ->
     timer:sleep(50),
     true = have_node(Node),
     true = erlang:is_process_alive(NodePid),
+    true = erlang:is_process_alive(AdapterPid),
     {ok, [{axb_itest_adapter, running}]} = axb_node:info(Node, adapters),
     %
     % Kill the adapter, it should left registered.
@@ -141,6 +156,7 @@ test_adapter_registration(_Config) ->
     timer:sleep(50),
     true = have_node(Node),
     true = erlang:is_process_alive(NodePid),
+    false = erlang:is_process_alive(AdapterPid),
     {ok, [{axb_itest_adapter, down}]} = axb_node:info(Node, adapters),
     %
     % Restart adapter, it should reregister itself.
@@ -174,8 +190,8 @@ test_adapter_registration(_Config) ->
 %%  Test adapter domains.
 %%
 test_adapter_domains(_Config) ->
-    lager:debug("Testcase test_adapter_domains - start"),
     Node = axb_itest_node:name(),
+    Adapter = axb_itest_adapter,
     %
     % Start the node, it should wait for the adapter.
     {ok, NodePid} = axb_itest_node:start_link(adapter),
@@ -183,28 +199,28 @@ test_adapter_domains(_Config) ->
     timer:sleep(50),
     true = have_node(Node),
     true = erlang:is_process_alive(NodePid),
-    {ok, [{axb_itest_adapter, running}]} = axb_node:info(Node, adapters),
-    {ok, [{main, true, true}]} = axb_adapter:info(Node, axb_itest_adapter, domains),
+    {ok, [{Adapter, running}]} = axb_node:info(Node, adapters),
+    {ok, [{main, true, true}]} = axb_adapter:info(Node, Adapter, domains),
     {ok, a1} = axb_itest_adapter:send_message(a1),
-    {ok, a2} = axb_itest_adapter:message_received(a2),
+    {ok, a2} = axb_itest_adapter:message_received(a2, s2),
     %
     % Disable domains.
-    ok = axb_adapter:domain_online(Node, axb_itest_adapter, main, all, false),
-    {ok, [{main, false, false}]} = axb_adapter:info(Node, axb_itest_adapter, domains),
-    {error, domain_offline} = axb_itest_adapter:send_message(a1),
-    {error, domain_offline} = axb_itest_adapter:message_received(a2),
+    ok = axb_adapter:domain_online(Node, Adapter, main, all, false),
+    {ok, [{main, false, false}]} = axb_adapter:info(Node, Adapter, domains),
+    {error, {offline, Node, Adapter, send_message}}     = axb_itest_adapter:send_message(a1),
+    {error, {offline, Node, Adapter, message_received}} = axb_itest_adapter:message_received(a2, s2),
     %
     % Enable internal domain.
-    ok = axb_adapter:domain_online(Node, axb_itest_adapter, main, internal, true),
-    {ok, [{main, true, false}]} = axb_adapter:info(Node, axb_itest_adapter, domains),
-    {ok, a3}                 = axb_itest_adapter:send_message(a3),
-    {error, domain_offline} = axb_itest_adapter:message_received(a4),
+    ok = axb_adapter:domain_online(Node, Adapter, main, internal, true),
+    {ok, [{main, true, false}]} = axb_adapter:info(Node, Adapter, domains),
+    {ok, a3}                                            = axb_itest_adapter:send_message(a3),
+    {error, {offline, Node, Adapter, message_received}} = axb_itest_adapter:message_received(a4, s4),
     %
     % External domain online also.
-    ok = axb_adapter:domain_online(Node, axb_itest_adapter, main, external, true),
-    {ok, [{main, true, true}]} = axb_adapter:info(Node, axb_itest_adapter, domains),
+    ok = axb_adapter:domain_online(Node, Adapter, main, external, true),
+    {ok, [{main, true, true}]} = axb_adapter:info(Node, Adapter, domains),
     {ok, a5} = axb_itest_adapter:send_message(a5),
-    {ok, a6} = axb_itest_adapter:message_received(a6),
+    {ok, a6} = axb_itest_adapter:message_received(a6, s6),
     %
     % Cleanup.
     ok = unlink_kill(NodePid),
@@ -218,7 +234,6 @@ test_adapter_domains(_Config) ->
 %%  to the node, and if the node waits for it.
 %%
 test_flow_mgr_registration(_Config) ->
-    lager:debug("Testcase test_flow_mgr_registration - start"),
     Node = axb_itest_node:name(),
     %
     % Start the node, it should wait for the flow manager.
@@ -272,7 +287,6 @@ test_flow_mgr_registration(_Config) ->
 %%  Check, if flow pool (implementation of the axb_flow_mgr) maintains flows properly.
 %%
 test_flow_pool(_Config) ->
-    lager:debug("Testcase test_flow_pool - start"),
     Node = axb_itest_node:name(),
     %
     % Start the node and the manager, it should wait for the flow manager.
@@ -306,7 +320,6 @@ test_flow_pool(_Config) ->
 %%  Test, if context ids are propagated.
 %%
 test_context_propagation(_Config) ->
-    lager:debug("Testcase test_context_propagation - start"),
     {ok, NodePid} = axb_itest_node:start_link(both),
     {ok, FlowMgrPid} = axb_itest_flows:start_link(single),
     {ok, AdapterPid} = axb_itest_adapter:start_link(single),
@@ -345,7 +358,6 @@ test_context_propagation(_Config) ->
 %%  Test, if axb info is returned correctly.
 %%
 test_info(_Config) ->
-    lager:debug("Testcase test_info - start"),
     {ok, NodePid} = axb_itest_node:start_link(both),
     {ok, FlowMgrPid} = axb_itest_flows:start_link(single),
     {ok, AdapterPid} = axb_itest_adapter:start_link(single),
@@ -412,13 +424,12 @@ test_info(_Config) ->
 %%  Check, if statistics are collected.
 %%
 test_stats(_Config) ->
-    lager:debug("Testcase test_stats - start"),
     {ok, NodePid} = axb_itest_node:start_link(both),
     {ok, FlowMgrPid} = axb_itest_flows:start_link(single),
     {ok, AdapterPid} = axb_itest_adapter:start_link(single),
     timer:sleep(50),
     {ok, msg1} = axb_itest_adapter:send_message(msg1),
-    {ok, msg2} = axb_itest_adapter:message_received(msg2),
+    {ok, msg2} = axb_itest_adapter:message_received(msg2, sender2),
     %
     % Check if stats created.
     {ok, StatNames} = axb_stats:info(list),
@@ -476,7 +487,6 @@ test_stats(_Config) ->
 %%  Check if console functions are working, or at least not crashing.
 %%
 test_console(_Config) ->
-    lager:debug("Testcase test_console - start"),
     {ok, NodePid} = axb_itest_node:start_link(both),
     {ok, FlowMgrPid} = axb_itest_flows:start_link(single),
     {ok, AdapterPid} = axb_itest_adapter:start_link(single),
@@ -583,7 +593,6 @@ test_console(_Config) ->
 %%  Check, if axb_supervisor works.
 %%
 test_supervisor(_Config) ->
-    lager:debug("Testcase test_supervisor - start"),
     {ok, NodePid} = axb_itest_node:start_link(both),
     {ok, SupPid} = axb_itest_adapter_sup:start_link(empty),
     false = axb_itest_adapter_listener:is_online(),
@@ -600,7 +609,6 @@ test_supervisor(_Config) ->
 %%  Check if Pipeline EIP works.
 %%
 test_eip_pipeline(_Config) ->
-    lager:debug("Testcase test_eip_pipeline - start"),
     {ok, NodePid}    = axb_itest_node:start_link(flow_mgr),
     {ok, FlowMgrPid} = axb_itest_flows:start_link(eip),
     timer:sleep(500),

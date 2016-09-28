@@ -77,11 +77,11 @@ start_link(NodeName, Module, Args, Opts) ->
 init({NodeName, Module, Args, Opts}) ->
     MgrSpec = {mgr,
         {axb_flow_pool_mgr, start_link, [NodeName, Module, Args, Opts]},
-        permanent, brutal_kill, worker, [axb_flow_pool_mgr, ?MODULE]
+        permanent, 1000, worker, [axb_flow_pool_mgr, ?MODULE]
     },
     SupSpec = {sup,
         {axb_flow_pool_sup, start_link, [NodeName, Module]},
-        permanent, brutal_kill, supervisor, [axb_flow_pool_sup]
+        permanent, 1000, supervisor, [axb_flow_pool_sup]
     },
     {ok, {{one_for_all, 100, 1000}, [SupSpec, MgrSpec]}}.
 

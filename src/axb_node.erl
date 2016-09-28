@@ -87,7 +87,7 @@ start_spec(SpecId, {Module, Function, Args}) when is_atom(Module), is_atom(Funct
     {SpecId,
         {Module, Function, Args},
         permanent,
-        brutal_kill,
+        1000,
         supervisor,
         [?MODULE, Module]
     }.
@@ -292,6 +292,7 @@ handle_sync_event({register_adapter, Module, Pid}, From, StateName, StateData) -
     #state{adapters = Adapters} = StateData,
     NewAdapter = #adapter{mod = Module, pid = Pid},
     Register = fun (NewAdapters) ->
+        lager:debug("Adapter registered, name=~p, pid=~p", [Module, Pid]),
         true = erlang:link(Pid),
         NewStateData = StateData#state{adapters = NewAdapters},
         case StateName of
@@ -320,6 +321,7 @@ handle_sync_event({register_flow_mgr, Module, Pid}, From, StateName, StateData) 
     #state{flow_mgrs = FlowMgrs} = StateData,
     NewFlowMgr = #flow_mgr{mod = Module, pid = Pid},
     Register = fun (NewFlowMgrs) ->
+        lager:debug("FlowMgr registered, name=~p, pid=~p", [Module, Pid]),
         true = erlang:link(Pid),
         NewStateData = StateData#state{flow_mgrs = NewFlowMgrs},
         case StateName of
@@ -469,7 +471,8 @@ handle_info({'EXIT', FromPid, Reason}, StateName, StateData) when is_pid(FromPid
             {stop, Reason, StateData}
     end;
 
-handle_info(_Request, StateName, StateData) ->
+handle_info(Unknown, StateName, StateData) ->
+    lager:debug("Unknown info event dropped: ~p", [Unknown]),
     {next_state, StateName, StateData}.
 
 

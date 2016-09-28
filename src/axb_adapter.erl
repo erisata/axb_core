@@ -1,5 +1,5 @@
 %/--------------------------------------------------------------------
-%| Copyright 2015 Erisata, UAB (Ltd.)
+%| Copyright 2015-2016 Erisata, UAB (Ltd.)
 %|
 %| Licensed under the Apache License, Version 2.0 (the "License");
 %| you may not use this file except in compliance with the License.
@@ -23,16 +23,26 @@
 %%%   * Collect metrics of the adapter operation;
 %%%   * Define metadata, describing the adapter.
 %%%
-%%% TODO: Add support for admin actions - predefined commands invokations.
+%%% TODO: Add support for user commands.
 %%%
 -module(axb_adapter).
 -behaviour(gen_server).
 -compile([{parse_transform, lager_transform}]).
--export([start_link/4, info/3, domain_online/5, command/6]).
+-export([ref/2, start_link/5, start_link/6, info/3, domain_online/5, command/6]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-include("axb.hrl").
 
--define(REG(NodeName, Module), {n, l, {?MODULE, NodeName, Module}}).
--define(REF(NodeName, Module), {via, gproc, ?REG(NodeName, Module)}).
+-define(REG(NodeName, AdapterName), {axb_adapter, NodeName, AdapterName}).
+-define(REF(NodeName, AdapterName), {via, axb, ?REG(NodeName, AdapterName)}).
+
+-type command_spec() :: axb_direction() | #{direction := axb_direction(), user_args => list()}.
+-type domain_spec()  :: #{CommadName :: axb_command() := command_spec()}.
+
+-type adapter_spec() ::
+    #{
+        description => binary() | iolist() | {priv, Filename :: string()} | {mfargs, module(), atom(), list()},
+        domains => #{axb_domain() => domain_spec()}
+    }.
 
 
 %%% =============================================================================
@@ -40,23 +50,37 @@
 %%% =============================================================================
 
 %%
-%%  This callback should return domains, provided by this adapter.
+%%  Initialize the adapter.
 %%
--callback provided_domains(
-        Args :: term()
+-callback init(
+        Arg :: term()
     ) ->
-        {ok, [DomainName :: atom()]}.
+        {ok, AdapterSpec :: adapter_spec(), State :: term()} |
+        {error, Reason :: term()}.
 
 
 %%
 %%  This callback notifies the adapter about changed domain states.
 %%
--callback domain_changed(
-        DomainName  :: atom(),
-        Direction   :: internal | external,
-        Online      :: boolean()
+-callback domain_change(
+        DomainName  :: axb_domain(),
+        Direction   :: axb_direction(),
+        Online      :: boolean(),
+        State       :: term()
     ) ->
-        ok.
+        {ok, NewState :: term()}.
+
+
+%%
+%%  Code upgrades.
+%%
+-callback code_change(
+        AdapterSpec :: adapter_spec(),
+        State       :: term(),
+        Extra       :: term()
+    ) ->
+        {ok, NewAdapterSpec :: adapter_spec(), NewState :: term()}.
+
 
 
 %%% =============================================================================
@@ -70,9 +94,11 @@
 }).
 
 -record(state, {
-    node        :: atom(),
-    module      :: module(),
-    args        :: term(),
+    node        :: axb_node(),
+    name        :: axb_adapter(),
+    cb_mod      :: module(),
+    cb_state    :: term(),
+    spec        :: adapter_spec(),
     domains     :: [#domain{}]
 }).
 
@@ -83,45 +109,81 @@
 %%% =============================================================================
 
 %%
-%%  Start the adapter.
+%%  Creates a reference to the adapter, that can be used as {via, axb, Ref}.
 %%
-start_link(NodeName, Module, Args, Opts) ->
-    gen_server:start_link(?REF(NodeName, Module), ?MODULE, {NodeName, Module, Args}, Opts).
+ref(NodeName, AdapterName) ->
+    ?REF(NodeName, AdapterName).
+
+
+%%
+%%  Start the adapter with no user-defined registration.
+%%
+-spec start_link(
+        NodeName    :: axb_node(),
+        AdapterName :: axb_adapter(),
+        CBModule    :: module(),
+        Arg         :: term(),
+        Opts        :: list()
+    ) ->
+        {ok, Pid :: pid()} | term().
+
+start_link(NodeName, AdapterName, CBModule, Arg, Opts) ->
+    gen_server:start_link(?MODULE, {NodeName, AdapterName, CBModule, Arg}, Opts).
+
+
+%%
+%%  Start the adapter with no user-defined registration.
+%%
+-spec start_link(
+        RegName     :: term(),
+        NodeName    :: axb_node(),
+        AdapterName :: axb_adapter(),
+        CBModule    :: module(),
+        Arg         :: term(),
+        Opts        :: list()
+    ) ->
+        {ok, Pid :: pid()} | term().
+
+start_link(RegName, NodeName, AdapterName, CBModule, Arg, Opts) ->
+    gen_server:start_link(RegName, ?MODULE, {NodeName, AdapterName, CBModule, Arg}, Opts).
 
 
 %%
 %%  Return some info about the adapter.
 %%
-info(NodeName, Module, What) ->
-    gen_server:call(?REF(NodeName, Module), {info, What}).
+info(NodeName, AdapterName, What) ->
+    gen_server:call(?REF(NodeName, AdapterName), {info, What}).
 
 
 %%
 %%  Set operation mode for domains, provided by the adapter.
 %%
 -spec domain_online(
-        NodeName    :: atom(),
-        Module      :: module(),
+        NodeName    :: axb_node(),
+        AdapterName :: axb_adapter(),
         DomainNames :: atom() | [atom()] | all,
-        Direction   :: internal | external | all | both,
+        Direction   :: axb_direction() | all | both,
         Online      :: boolean()
     ) ->
         ok.
 
-domain_online(NodeName, Module, DomainNames, Direction, Online) ->
-    gen_server:call(?REF(NodeName, Module), {domain_online, DomainNames, Direction, Online}).
+domain_online(NodeName, AdapterName, DomainNames, Direction, Online) ->
+    gen_server:call(?REF(NodeName, AdapterName), {domain_online, DomainNames, Direction, Online}).
 
 
 %%
 %%  Checks, is particular domain is online.
 %%  This function uses gproc to perform this, therefore is not using the adapter process.
 %%
-domain_online(NodeName, Module, DomainName, Direction) ->
-    Domains = gproc:lookup_value(?REG(NodeName, Module)),
+domain_online(NodeName, AdapterName, DomainName, Direction) ->
+    Domains = axb:gproc_lookup_value(?REG(NodeName, AdapterName)),
     #domain{internal = I, external = E} = lists:keyfind(DomainName, #domain.name, Domains),
     case Direction of
         internal -> I;
-        external -> E
+        external -> E;
+        map      -> #{internal => I, external => E};
+        all      -> I and E;
+        any      -> I or E
     end.
 
 
@@ -130,20 +192,20 @@ domain_online(NodeName, Module, DomainName, Direction) ->
 %%  Executes command in the context of the particular domain.
 %%  This function uses gproc to perform this, therefore is not using the adapter process.
 %%
-command(NodeName, Module, Domain, Direction, CommandName, CommandFun) ->
+command(NodeName, AdapterName, DomainName, Direction, CommandName, CommandFun) ->
     {ok, CtxRef} = axb_context:push(),
-    case domain_online(NodeName, Module, Domain, Direction) of
+    case domain_online(NodeName, AdapterName, DomainName, Direction) of
         true ->
-            lager:debug("Executing ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, Module, Domain]),
+            lager:debug("Executing ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, AdapterName, DomainName]),
             try timer:tc(CommandFun) of
                 {DurationUS, Result} ->
-                    ok = axb_stats:adapter_command_executed(NodeName, Module, Domain, Direction, CommandName, DurationUS),
+                    ok = axb_stats:adapter_command_executed(NodeName, AdapterName, DomainName, Direction, CommandName, DurationUS),
                     lager:debug("Executing ~p command ~p done in ~pms", [Direction, CommandName, DurationUS / 1000]),
                     ok = axb_context:pop(CtxRef),
                     Result
             catch
                 ErrType:ErrCode ->
-                    ok = axb_stats:adapter_command_executed(NodeName, Module, Domain, Direction, CommandName, error),
+                    ok = axb_stats:adapter_command_executed(NodeName, AdapterName, DomainName, Direction, CommandName, error),
                     lager:error(
                         "Executing ~p command ~p failed with ~p:~p, trace=~p",
                         [Direction, CommandName, ErrType, ErrCode, erlang:get_stacktrace()]
@@ -152,10 +214,10 @@ command(NodeName, Module, Domain, Direction, CommandName, CommandFun) ->
                     {error, {ErrType, ErrCode}}
             end;
         false ->
-            ok = axb_stats:adapter_command_executed(NodeName, Module, Domain, Direction, CommandName, error),
-            lager:warning("Dropping ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, Module, Domain]),
+            ok = axb_stats:adapter_command_executed(NodeName, AdapterName, DomainName, Direction, CommandName, error),
+            lager:warning("Dropping ~p command ~p at ~p:~p:~p", [Direction, CommandName, NodeName, AdapterName, DomainName]),
             ok = axb_context:pop(CtxRef),
-            {error, domain_offline}
+            {error, {offline, NodeName, AdapterName, CommandName}}
     end.
 
 
@@ -167,22 +229,25 @@ command(NodeName, Module, Domain, Direction, CommandName, CommandFun) ->
 %%
 %%
 %%
-init({NodeName, Module, Args}) ->
-    case Module:provided_domains(Args) of
-        {ok, DomainNames} ->
+init({NodeName, AdapterName, CBModule, Arg}) ->
+    case CBModule:init(Arg) of
+        {ok, AdapterSpec = #{domains := DomainSpecs}, CBState} ->
+            DomainNames = maps:keys(DomainSpecs),
             Domains = [
                 #domain{name = N, internal = false, external = false}
                 || N <- DomainNames
             ],
             State = #state{
                 node     = NodeName,
-                module   = Module,
-                args     = Args,
-                domains = Domains
+                name     = AdapterName,
+                cb_mod   = CBModule,
+                cb_state = CBState,
+                spec     = AdapterSpec,
+                domains  = Domains
             },
-            true = gproc:set_value(?REG(NodeName, Module), Domains),
-            ok = axb_node:register_adapter(NodeName, Module, []),
-            ok = axb_stats:adapter_registered(NodeName, Module, DomainNames),
+            true = axb:gproc_reg(?REG(NodeName, AdapterName), Domains),
+            ok = axb_node:register_adapter(NodeName, AdapterName, []),
+            ok = axb_stats:adapter_registered(NodeName, AdapterName, DomainNames),
             {ok, State}
     end.
 
@@ -192,9 +257,11 @@ init({NodeName, Module, Args}) ->
 %%
 handle_call({domain_online, DomainNames, Direction, Online}, _From, State) ->
     #state{
-        node = NodeName,
-        module = Module,
-        domains = Domains
+        node     = NodeName,
+        name     = AdapterName,
+        cb_mod   = CBModule,
+        cb_state = CBState,
+        domains  = Domains
     } = State,
     AvailableDomains = [ N || #domain{name = N} <- Domains ],
     AffectedDomains = case DomainNames of
@@ -214,14 +281,20 @@ handle_call({domain_online, DomainNames, Direction, Online}, _From, State) ->
     NewDomainsWithActions = lists:map(ApplyActionFun, Domains),
     NewDomains = [ S || {S, _} <- NewDomainsWithActions],
     ServActions = lists:append([ A || {_, A} <- NewDomainsWithActions]),
-    true = gproc:set_value(?REG(NodeName, Module), NewDomains),    % NOTE: Possible race condition (vs domain_changed).
-    NotifyActionsFun = fun ({Dom, D, O}) ->
-        lager:info("Node ~p adapter ~p domain ~p direction=~p set online=~p", [NodeName, Module, Dom, D, O]),
-        ok = Module:domain_changed(Dom, D, O)
+    true = axb:gproc_set_value(?REG(NodeName, AdapterName), NewDomains),    % NOTE: Possible race condition (vs domain_changed).
+    NotifyActionsFun = fun ({Dom, D, O}, CBS) ->
+        lager:info("Node ~p adapter ~p domain ~p direction=~p set online=~p", [NodeName, AdapterName, Dom, D, O]),
+        case CBModule:domain_change(Dom, D, O, CBS) of
+            {ok, NCBS} ->
+                NCBS
+        end
     end,
-    ok = lists:foreach(NotifyActionsFun, ServActions),
-    ok = axb_node_events:node_state_changed(NodeName, {adapter, Module, domain_state}),
-    NewState = State#state{domains = NewDomains},
+    NewCBState = lists:foldl(NotifyActionsFun, CBState, ServActions),
+    ok = axb_node_events:node_state_changed(NodeName, {adapter, AdapterName, domain_state}),
+    NewState = State#state{
+        cb_state = NewCBState,
+        domains  = NewDomains
+    },
     {reply, ok, NewState};
 
 handle_call({info, What}, _From, State = #state{domains = Domains}) ->
@@ -263,11 +336,17 @@ handle_info(_Message, State) ->
 terminate(_Reason, _State) ->
     ok.
 
+
 %%
+%%  Code upgrades.
 %%
-%%
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+code_change(_OldVsn, State = #state{spec = AdapterSpec, cb_mod = CBModule, cb_state = CBState}, Extra) ->
+    case CBModule:code_change(AdapterSpec, CBState, Extra) of
+        {ok, AdapterSpec, NewCBState} ->
+            {ok, State#state{cb_state = NewCBState}}
+        % TODO: Handle spec changes.
+    end.
+
 
 
 %%% =============================================================================
@@ -296,4 +375,5 @@ domain_mode_change(Domain = #domain{name = Name, internal = Internal, external =
 %%
 domain_status(true) -> online;
 domain_status(false) -> offline.
+
 

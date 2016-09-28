@@ -45,7 +45,7 @@ sup_start_spec(NodeName, FlowMgrModule, FlowDomain, FlowModule, Opts) ->
     Spec = {
         FlowModule,
         {?MODULE, start_link, [NodeName, FlowMgrModule, FlowDomain, FlowModule, Opts]},
-        permanent, brutal_kill, supervisor, [?MODULE, FlowModule]
+        permanent, 1000, supervisor, [?MODULE, FlowModule]
     },
     {ok, Spec}.
 
@@ -94,7 +94,7 @@ init({NodeName, FlowMgrModule, FlowDomain, FlowModule, Opts}) ->
     DefaultMods = [axb_flow, FlowModule],
     FlowMFA = proplists:get_value(mfa, Opts, DefaultMFA),
     FlowMods = proplists:get_value(modules, Opts, DefaultMods),
-    DefaultSpec = {FlowModule, FlowMFA, transient, brutal_kill, worker, FlowMods},
+    DefaultSpec = {FlowModule, FlowMFA, transient, 1000, worker, FlowMods},
     ChildSpec = proplists:get_value(spec, Opts, DefaultSpec),
     lager:debug(
         "Starting flow supervisor for node=~p, flow_mgr=~p, flow=~p with child_spec=~p",
