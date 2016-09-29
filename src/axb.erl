@@ -1,5 +1,5 @@
 %/--------------------------------------------------------------------
-%| Copyright 2015 Erisata, UAB (Ltd.)
+%| Copyright 2015-2016 Erisata, UAB (Ltd.)
 %|
 %| Licensed under the Apache License, Version 2.0 (the "License");
 %| you may not use this file except in compliance with the License.
@@ -19,7 +19,8 @@
 %%%
 %%% Mainly acts as a facade to other modules.
 %%%
-%%% TODO: Support persistent state for the adapter and flow states (online/offline).
+%%% TODO: Support persistent state for the adapter and flow
+%%%       states (online/offline). Use Mnesia local content tables for that.
 %%%
 %%% TODO: Supervisors with shutdown=/=brutal_kill fail to restart
 %%%       on kill because named children are still alive. Is it OK?
