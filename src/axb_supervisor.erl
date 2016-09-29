@@ -56,6 +56,12 @@ start_link(Name, Module, Args) ->
 %%  Start or restart a child by given specification.
 %%
 start_child(Name, {ChildId, _StartFunc, _Restart, _Shutdown, _Type, _Modules} = StartSpec) ->
+    start_child(Name, ChildId, StartSpec);
+
+start_child(Name, #{id := ChildId} = StartSpec) ->
+    start_child(Name, ChildId, StartSpec).
+
+start_child(Name, ChildId, StartSpec) ->
     case supervisor:start_child(Name, StartSpec) of
         {ok, _Child} ->
             ok;

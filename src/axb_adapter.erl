@@ -24,6 +24,7 @@
 %%%   * Define metadata, describing the adapter.
 %%%
 %%% TODO: Add support for user commands.
+%%% TODO: Call the domain_change callback on process restart (after crash) - maybe controlled from the node.
 %%%
 -module(axb_adapter).
 -behaviour(gen_server).

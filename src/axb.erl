@@ -19,6 +19,11 @@
 %%%
 %%% Mainly acts as a facade to other modules.
 %%%
+%%% TODO: Support persistent state for the adapter and flow states (online/offline).
+%%%
+%%% TODO: Supervisors with shutdown=/=brutal_kill fail to restart
+%%%       on kill because named children are still alive. Is it OK?
+%%%
 -module(axb).
 -compile([{parse_transform, lager_transform}]).
 -export([start/0, info/0, info/1, i/0, i/1, make_id/0]).
