@@ -445,8 +445,19 @@ publish_attrs(#state{node = NodeName, mod = Module, flows = Flows}) ->
 %%
 notify_changes(ChangedFlows, StateData = #state{cbm = CBModule, cbs = CBState}) ->
     NotifyChanges = fun (#flow{mod = M, online = O}, CBS) ->
-        {ok, NewCBS} = CBModule:flow_changed(M, O, CBS),
-        NewCBS
+        case catch CBModule:flow_changed(M, O, CBS) of
+            {ok, NewCBS} ->
+                NewCBS;
+            {error, Reason} ->
+                lager:error("Failed to change flow ~p status to online=~p, reason=~p", [M, O, Reason]),
+                CBS;
+            {'EXIT', Reason} ->
+                lager:error("Failed to change flow ~p status to online=~p, reason=~p", [M, O, Reason]),
+                CBS;
+            Reason ->
+                lager:error("Failed to change flow ~p status to online=~p, reason=~p", [M, O, Reason]),
+                CBS
+        end
     end,
     NewCBState = lists:foldr(NotifyChanges, CBState, ChangedFlows),
     {ok, StateData#state{cbs = NewCBState}}.

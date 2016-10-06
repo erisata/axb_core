@@ -1,5 +1,5 @@
 %/--------------------------------------------------------------------
-%| Copyright 2015 Erisata, UAB (Ltd.)
+%| Copyright 2015-2016 Erisata, UAB (Ltd.)
 %|
 %| Licensed under the Apache License, Version 2.0 (the "License");
 %| you may not use this file except in compliance with the License.
@@ -38,13 +38,14 @@
     start_spec/2,
     start_link/4,
     info/2,
-    register_adapter/3,
+    register_adapter/4,
     register_flow_mgr/3,
     unregister_adapter/2,
     unregister_flow_mgr/2
 ]).
 -export([init/1, handle_sync_event/4, handle_event/3, handle_info/3, terminate/3, code_change/4]).
 -export([waiting/2, starting_internal/2, starting_flows/2, starting_external/2, ready/2]).
+-include("axb.hrl").
 
 -define(REF(NodeName), {via, gproc, {n, l, {?MODULE, NodeName}}}).
 -define(WAIT_INFO_DELAY, 5000).
@@ -116,9 +117,18 @@ info(NodeName, What) ->
 %%
 %%  Register an adapter to this node.
 %%
-register_adapter(NodeName, AdapterModule, _Opts) ->
+-spec register_adapter(
+        NodeName    :: axb_node(),
+        AdapterName :: axb_adapter(),
+        DomainNames :: [axb_domain()],
+        Opts        :: list()
+    ) ->
+        {ok, [{DomainName :: axb_adapter(), Internal :: boolean(), External :: boolean()}]} |
+        {error, Reason :: term()}.
+
+register_adapter(NodeName, AdapterName, DomainNames, _Opts) ->
     AdapterPid = self(),
-    gen_fsm:sync_send_all_state_event(?REF(NodeName), {register_adapter, AdapterModule, AdapterPid}).
+    gen_fsm:sync_send_all_state_event(?REF(NodeName), {register_adapter, AdapterName, AdapterPid, DomainNames}).
 
 
 %%
@@ -132,8 +142,8 @@ register_flow_mgr(NodeName, FlowMgrModule, _Opts) ->
 %%
 %%  Unregister an adapter from this node.
 %%
-unregister_adapter(NodeName, AdapterModule) ->
-    gen_fsm:sync_send_all_state_event(?REF(NodeName), {unregister_adapter, AdapterModule}).
+unregister_adapter(NodeName, AdapterName) ->
+    gen_fsm:sync_send_all_state_event(?REF(NodeName), {unregister_adapter, AdapterName}).
 
 
 %%
@@ -153,9 +163,11 @@ unregister_flow_mgr(NodeName, FlowMgrName) ->
     pid
 }).
 
+
 -record(adapter, {
-    mod,
-    pid
+    name    :: axb_adapter(),
+    pid     :: pid(),
+    domains :: [{DomainName :: axb_domain(), Internal :: boolean(), External :: boolean()}]
 }).
 
 -record(state, {
@@ -183,7 +195,7 @@ init({NodeName, Module, Args}) ->
                 name = NodeName,
                 mod = Module,
                 flow_mgrs  = [ #flow_mgr{mod = F} || F <- FlowMgrsToWait ],
-                adapters   = [ #adapter {mod = A} || A <- AdaptersToWait ],
+                adapters   = [ #adapter{name = A, domains = []} || A <- AdaptersToWait ],
                 waiting_tr = undefined
             },
             {next_state, NextState, NewStateData} = case have_all_deps(StateData) of
@@ -207,7 +219,7 @@ waiting(enter, StateData) ->
     {next_state, waiting, NewStateData#state{waiting_tr = NewRef}};
 
 waiting(waiting_timeout, StateData = #state{adapters = Adapters, flow_mgrs = FlowMgrs}) ->
-    MissingAdapters = [ M || #adapter{mod = M,  pid = undefined} <- Adapters ],
+    MissingAdapters = [ N || #adapter{name = N, pid = undefined} <- Adapters ],
     MissingFlowMgrs = [ N || #flow_mgr{mod = N, pid = undefined} <- FlowMgrs ],
     lager:info("Still waiting for adapters ~p and flow managers ~p", [MissingAdapters, MissingFlowMgrs]),
     waiting(enter, StateData#state{waiting_tr = undefined}).
@@ -223,17 +235,23 @@ starting_internal(enter, StateData) ->
 
 starting_internal(start_internal, StateData = #state{name = NodeName, adapters = Adapters}) ->
     lager:debug("Node ~p is starting internal services for all known adapters.", [NodeName]),
-    StartAdapterInternalServices = fun (#adapter{mod = AdapterModule}) ->
-        case is_adapter_startup_enabled(NodeName, AdapterModule) of
+    StartAdapterInternalServices = fun (Adapter = #adapter{name = AdapterName, domains = Domains}) ->
+        case is_adapter_startup_enabled(NodeName, AdapterName) of
             true ->
-                EnabledDomains = adapter_domains_enabled_on_startup(NodeName, AdapterModule),
-                ok = axb_adapter:domain_online(NodeName, AdapterModule, EnabledDomains, internal, true);
+                EnabledDomains = adapter_domains_enabled_on_startup(NodeName, AdapterName, Domains),
+                ok = axb_adapter:domain_online(NodeName, AdapterName, EnabledDomains, internal, true),
+                UpdateDomains = fun ({D, _I, E}) ->
+                    {D, lists:member(D, EnabledDomains), E}
+                end,
+                Adapter#adapter{domains = lists:map(UpdateDomains, Domains)};
             false ->
-                lager:warning("Skipping disabled adapter ~p at ~p.", [AdapterModule, NodeName])
+                lager:warning("Skipping disabled adapter ~p at ~p.", [AdapterName, NodeName]),
+                Adapter
         end
     end,
-    ok = lists:foreach(StartAdapterInternalServices, Adapters),
-    starting_flows(enter, StateData).
+    NewAdapters = lists:map(StartAdapterInternalServices, Adapters),
+    NewStateData = StateData#state{adapters = NewAdapters},
+    starting_flows(enter, NewStateData).
 
 
 %%
@@ -261,17 +279,23 @@ starting_external(enter, StateData) ->
 
 starting_external(start_external, StateData = #state{name = NodeName, adapters = Adapters}) ->
     lager:debug("Node ~p is starting external services for all known adapters.", [NodeName]),
-    StartAdapterExternalServices = fun (#adapter{mod = AdapterModule}) ->
-        case is_adapter_startup_enabled(NodeName, AdapterModule) of
+    StartAdapterExternalServices = fun (Adapter = #adapter{name = AdapterName, domains = Domains}) ->
+        case is_adapter_startup_enabled(NodeName, AdapterName) of
             true ->
-                EnabledDomains = adapter_domains_enabled_on_startup(NodeName, AdapterModule),
-                ok = axb_adapter:domain_online(NodeName, AdapterModule, EnabledDomains, all, true);
+                EnabledDomains = adapter_domains_enabled_on_startup(NodeName, AdapterName, Domains),
+                ok = axb_adapter:domain_online(NodeName, AdapterName, EnabledDomains, external, true),
+                UpdateDomains = fun ({D, I, _E}) ->
+                    {D, I, lists:member(D, EnabledDomains)}
+                end,
+                Adapter#adapter{domains = lists:map(UpdateDomains, Domains)};
             false ->
-                lager:warning("Skipping disabled adapter ~p at ~p.", [AdapterModule, NodeName])
+                lager:warning("Skipping disabled adapter ~p at ~p.", [AdapterName, NodeName]),
+                Adapter
         end
     end,
-    ok = lists:foreach(StartAdapterExternalServices, Adapters),
-    ready(enter, StateData).
+    NewAdapters = lists:map(StartAdapterExternalServices, Adapters),
+    NewStateData = StateData#state{adapters = NewAdapters},
+    ready(enter, NewStateData).
 
 
 %%
@@ -288,32 +312,56 @@ ready(enter, StateData = #state{name = NodeName}) ->
 %%
 %%  All-state synchronous events.
 %%
-handle_sync_event({register_adapter, Module, Pid}, From, StateName, StateData) ->
-    #state{adapters = Adapters} = StateData,
-    NewAdapter = #adapter{mod = Module, pid = Pid},
-    Register = fun (NewAdapters) ->
-        lager:debug("Adapter registered, name=~p, pid=~p", [Module, Pid]),
-        true = erlang:link(Pid),
+handle_sync_event({register_adapter, AdapterName, AdapterPid, DomainNames}, From, StateName, StateData) ->
+    #state{
+        name     = NodeName,
+        adapters = Adapters
+    } = StateData,
+    Register = fun (NewAdapters, NewDomains) ->
+        lager:debug("Adapter registered, name=~p, pid=~p", [AdapterName, AdapterPid]),
+        true = erlang:link(AdapterPid),
         NewStateData = StateData#state{adapters = NewAdapters},
         case StateName of
             waiting ->
-                gen_fsm:reply(From, ok),
+                gen_fsm:reply(From, {ok, NewDomains}),
                 case have_all_deps(NewStateData) of
                     true ->  starting_internal(enter, NewStateData);
                     false -> waiting(enter, NewStateData)
                 end;
             _ ->
-                {reply, ok, StateName, NewStateData}
+                {reply, {ok, NewDomains}, StateName, NewStateData}
         end
     end,
-    case lists:keyfind(Module, #adapter.mod, Adapters) of
+    case lists:keyfind(AdapterName, #adapter.name, Adapters) of
         false ->
-            Register([NewAdapter | Adapters]);
-        NewAdapter ->
-            {reply, ok, StateName, StateData};
-        #adapter{pid = undefined} ->
-            Register(lists:keyreplace(Module, #adapter.mod, Adapters, NewAdapter));
-        #adapter{} ->
+            % New adapter registered.
+            NewDomains = adapter_domain_statuses(NodeName, AdapterName, DomainNames, []),
+            NewAdapter = #adapter{
+                name    = AdapterName,
+                pid     = AdapterPid,
+                domains = NewDomains
+            },
+            Register([NewAdapter | Adapters], NewDomains);
+        #adapter{pid = AdapterPid, domains = OldDomains} = OldAdapter ->
+            % Existing adapter re-registered with the same PID, do almost nothing.
+            NewDomains = adapter_domain_statuses(NodeName, AdapterName, DomainNames, OldDomains),
+            NewAdapter = OldAdapter#adapter{
+                domains = NewDomains
+            },
+            NewStateData = StateData#state{
+                adapters = lists:keyreplace(AdapterName, #adapter.name, Adapters, NewAdapter)
+            },
+            {reply, {ok, NewDomains}, NewStateData, StateData};
+        #adapter{pid = undefined, domains = OldDomains} = OldAdapter ->
+            % New adapter registered, or re-registered after a crash.
+            NewDomains = adapter_domain_statuses(NodeName, AdapterName, DomainNames, OldDomains),
+            NewAdapter = OldAdapter#adapter{
+                pid     = AdapterPid,
+                domains = NewDomains
+            },
+            Register(lists:keyreplace(AdapterName, #adapter.name, Adapters, NewAdapter), NewDomains);
+        #adapter{pid = OldAdapterPid} when OldAdapterPid =/= AdapterPid ->
+            % Adapter is already registered with another PID.
             {reply, {error, already_registered}, StateName, StateData}
     end;
 
@@ -328,7 +376,7 @@ handle_sync_event({register_flow_mgr, Module, Pid}, From, StateName, StateData) 
             waiting ->
                 gen_fsm:reply(From, ok),
                 case have_all_deps(NewStateData) of
-                    true ->  starting_internal(enter, NewStateData);
+                    true  -> starting_internal(enter, NewStateData);
                     false -> waiting(enter, NewStateData)
                 end;
             _ ->
@@ -346,14 +394,14 @@ handle_sync_event({register_flow_mgr, Module, Pid}, From, StateName, StateData) 
             {reply, {error, already_registered}, StateName, StateData}
     end;
 
-handle_sync_event({unregister_adapter, Module}, _From, StateName, StateData) ->
+handle_sync_event({unregister_adapter, AdapterName}, _From, StateName, StateData) ->
     #state{adapters = Adapters} = StateData,
-    case lists:keytake(Module, #adapter.mod, Adapters) of
+    case lists:keytake(AdapterName, #adapter.name, Adapters) of
         false ->
-            lager:warning("Attempt to unregister unknown adapter ~p.", [Module]),
+            lager:warning("Attempt to unregister unknown adapter ~p.", [AdapterName]),
             {reply, ok, StateName, StateData};
         {value, #adapter{pid = Pid}, NewAdapters} ->
-            lager:info("Unregistering adapter ~p, pid=~p", [Module, Pid]),
+            lager:info("Unregistering adapter ~p, pid=~p", [AdapterName, Pid]),
             true = erlang:unlink(Pid),
             NewStateData = StateData#state{adapters = NewAdapters},
             {reply, ok, StateName, NewStateData}
@@ -381,7 +429,7 @@ handle_sync_event({info, What}, _From, StateName, StateData) ->
     Reply = case What of
         adapters ->
             {ok, [
-                {M, adapter_status(A)} || A = #adapter{mod = M} <- Adapters
+                {N, adapter_status(A)} || A = #adapter{name = N} <- Adapters
             ]};
         flow_mgrs ->
             {ok, [
@@ -424,10 +472,10 @@ handle_sync_event({info, What}, _From, StateName, StateData) ->
                     {node_uptime,   UptimeMS div 1000}
                 ]},
                 {adapters, [
-                    {M, [
+                    {N, [
                         {status, adapter_status(A)}
                     ]}
-                    || A = #adapter{mod = M} <- Adapters
+                    || A = #adapter{name = N} <- Adapters
                 ]},
                 {flow_mgrs, [
                     {M, [
@@ -458,9 +506,9 @@ handle_info({'EXIT', FromPid, Reason}, StateName, StateData) when is_pid(FromPid
     Adapter = lists:keyfind(FromPid, #adapter.pid, Adapters),
     FlowMgr = lists:keyfind(FromPid, #flow_mgr.pid, FlowMgrs),
     case {Adapter, FlowMgr} of
-        {#adapter{mod = Module}, false} ->
-            lager:warning("Adapter terminated, module=~p, pid=~p, reason=~p", [Module, FromPid, Reason]),
-            NewAdapters = lists:keyreplace(Module, #adapter.mod, Adapters, Adapter#adapter{pid = undefined}),
+        {#adapter{name = AdapterName}, false} ->
+            lager:warning("Adapter terminated, module=~p, pid=~p, reason=~p", [AdapterName, FromPid, Reason]),
+            NewAdapters = lists:keyreplace(AdapterName, #adapter.name, Adapters, Adapter#adapter{pid = undefined}),
             {next_state, StateName, StateData#state{adapters = NewAdapters}};
         {false, #flow_mgr{mod = Module}} ->
             lager:warning("Flow manager terminated, name=~p, pid=~p, reason=~p", [Module, FromPid, Reason]),
@@ -521,31 +569,46 @@ flow_mgr_status(#flow_mgr{pid = Pid}) when is_pid(Pid) -> running.
 
 
 %%
+%%  Determine current domain statuses.
+%%
+adapter_domain_statuses(NodeName, AdapterName, DomainNames, KnownDomains) ->
+    DomainStatus = fun (DomainName) ->
+        case lists:keyfind(DomainName, 1, KnownDomains) of
+            false ->
+                Enabled = is_adapter_domain_startup_enabled(NodeName, AdapterName, DomainName),
+                {DomainName, Enabled, Enabled};
+            {DomainName, Internal, External} ->
+                {DomainName, Internal, External}
+        end
+    end,
+    lists:map(DomainStatus, DomainNames).
+
+
+%%
 %%  Returns a list of adapter domains, enabled on startup.
 %%
-adapter_domains_enabled_on_startup(NodeName, AdapterModule) ->
-    FilterEnabledDomains = fun ({DomainName, _InternalServicesStatus, _ExternalServicesStatus}) ->
-        case is_adapter_domain_startup_enabled(NodeName, AdapterModule, DomainName) of
+adapter_domains_enabled_on_startup(NodeName, AdapterName, Domains) ->
+    FilterEnabledDomains = fun ({DomainName, _Internal, _External}) ->
+        case is_adapter_domain_startup_enabled(NodeName, AdapterName, DomainName) of
             true  -> {true, DomainName};
             false -> false
         end
     end,
-    {ok, DomainStatuses} = axb_adapter:info(NodeName, AdapterModule, domains),
-    lists:filtermap(FilterEnabledDomains, DomainStatuses).
+    lists:filtermap(FilterEnabledDomains, Domains).
 
 
 %%
 %%  Checks, if the specified adapter is enabled on startup.
 %%
-is_adapter_startup_enabled(NodeName, AdapterModule) ->
-    is_startup_enabled({NodeName, AdapterModule}).
+is_adapter_startup_enabled(NodeName, AdapterName) ->
+    is_startup_enabled({NodeName, AdapterName}).
 
 
 %%
 %%  Checks, if the specified adapter domain is enabled on startup.
 %%
-is_adapter_domain_startup_enabled(NodeName, AdapterModule, DomainName) ->
-    is_startup_enabled({NodeName, AdapterModule, DomainName}).
+is_adapter_domain_startup_enabled(NodeName, AdapterName, DomainName) ->
+    is_startup_enabled({NodeName, AdapterName, DomainName}).
 
 
 is_startup_enabled(Key) ->

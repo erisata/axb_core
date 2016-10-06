@@ -231,12 +231,19 @@ command(NodeName, AdapterName, DomainName, Direction, CommandName, CommandFun) -
 %%
 %%
 init({NodeName, AdapterName, CBModule, Arg}) ->
+    self() ! initialize,
     case CBModule:init(Arg) of
         {ok, AdapterSpec = #{domains := DomainSpecs}, CBState} ->
             DomainNames = maps:keys(DomainSpecs),
-            Domains = [
+            PrelimDomains = [
                 #domain{name = N, internal = false, external = false}
                 || N <- DomainNames
+            ],
+            true = axb:gproc_reg(?REG(NodeName, AdapterName), PrelimDomains),
+            {ok, DomainStatuses} = axb_node:register_adapter(NodeName, AdapterName, DomainNames, []),
+            Domains = [
+                #domain{name = N, internal = I, external = E}
+                || {N, I, E} <- DomainStatuses
             ],
             State = #state{
                 node     = NodeName,
@@ -246,10 +253,11 @@ init({NodeName, AdapterName, CBModule, Arg}) ->
                 spec     = AdapterSpec,
                 domains  = Domains
             },
-            true = axb:gproc_reg(?REG(NodeName, AdapterName), Domains),
-            ok = axb_node:register_adapter(NodeName, AdapterName, []),
+            true = axb:gproc_set_value(?REG(NodeName, AdapterName), Domains),
             ok = axb_stats:adapter_registered(NodeName, AdapterName, DomainNames),
-            {ok, State}
+            {ok, State};
+        {error, Reason} ->
+            {stop, Reason}
     end.
 
 
@@ -282,7 +290,7 @@ handle_call({domain_online, DomainNames, Direction, Online}, _From, State) ->
     NewDomainsWithActions = lists:map(ApplyActionFun, Domains),
     NewDomains = [ S || {S, _} <- NewDomainsWithActions],
     ServActions = lists:append([ A || {_, A} <- NewDomainsWithActions]),
-    true = axb:gproc_set_value(?REG(NodeName, AdapterName), NewDomains),    % NOTE: Possible race condition (vs domain_changed).
+    true = axb:gproc_set_value(?REG(NodeName, AdapterName), NewDomains),
     NotifyActionsFun = fun ({Dom, D, O}, CBS) ->
         lager:info("Node ~p adapter ~p domain ~p direction=~p set online=~p", [NodeName, AdapterName, Dom, D, O]),
         case CBModule:domain_change(Dom, D, O, CBS) of
@@ -327,6 +335,29 @@ handle_cast(_Message, State) ->
 %%
 %%
 %%
+handle_info(initialize, State) ->
+    #state{
+        node     = NodeName,
+        name     = AdapterName,
+        domains  = Domains,
+        cb_mod   = CBModule,
+        cb_state = CBState
+    } = State,
+    NotifyDomainStateFun = fun (#domain{name = DomainName, internal = Internal, external = External}, CBS) ->
+        lager:info(
+            "Node ~p adapter ~p domain ~p set online internal=~p, external=~p",
+            [NodeName, AdapterName, DomainName, Internal, External]
+        ),
+        {ok, ICBS} = CBModule:domain_change(DomainName, internal, Internal, CBS),
+        {ok, ECBS} = CBModule:domain_change(DomainName, external, External, ICBS),
+        ECBS
+    end,
+    NewCBState = lists:foldl(NotifyDomainStateFun, CBState, Domains),
+    NewState = State#state{
+        cb_state = NewCBState
+    },
+    {noreply, NewState};
+
 handle_info(_Message, State) ->
     {noreply, State}.
 
