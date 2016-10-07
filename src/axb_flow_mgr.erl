@@ -20,12 +20,13 @@
 -module(axb_flow_mgr).
 -behaviour(gen_fsm).
 -compile([{parse_transform, lager_transform}]).
--export([start_link/5, info/3, register_flow/5, unregister_flow/3, flow_started/5, flow_online/4, flow_online/3]).
+-export([start_link/5, info/3, register_flow/4, unregister_flow/3, flow_started/5, flow_online/4, flow_online/3]).
 -export([init/1, handle_sync_event/4, handle_event/3, handle_info/3, terminate/3, code_change/4]).
 -export([waiting/2, ready/2]).
+-include("axb.hrl").
 
--define(REG(NodeName, Module), {n, l, {?MODULE, NodeName, Module}}).
--define(REF(NodeName, Module), {via, gproc, ?REG(NodeName, Module)}).   % TODO: Via axb, as in adapter.
+-define(REG(NodeName, FlowMgrName), {n, l, {?MODULE, NodeName, FlowMgrName}}).
+-define(REF(NodeName, FlowMgrName), {via, gproc, ?REG(NodeName, FlowMgrName)}).   % TODO: Via axb, as in adapter.
 
 -define(WAIT_INFO_DELAY, 5000).
 
@@ -48,7 +49,7 @@
 %%  This callback notifies the flow manager about changed flow states.
 %%
 -callback flow_changed(
-        FlowModule  :: module(),
+        FlowName    :: axb_flow(),
         Online      :: boolean(),
         State       :: term()
     ) ->
@@ -74,8 +75,8 @@
 %%
 %%  Start this flow manager.
 %%
-start_link(NodeName, Module, CBModule, Args, Opts) ->
-    gen_fsm:start_link(?REF(NodeName, Module), ?MODULE, {NodeName, Module, CBModule, Args}, Opts).
+start_link(NodeName, FlowMgrName, CBModule, Args, Opts) ->
+    gen_fsm:start_link(?REF(NodeName, FlowMgrName), ?MODULE, {NodeName, FlowMgrName, CBModule, Args}, Opts).
 
 
 %%
@@ -88,35 +89,35 @@ start_link(NodeName, Module, CBModule, Args, Opts) ->
     ) ->
         {ok, Info :: term()}.
 
-info(NodeName, Module, What) ->
-    gen_fsm:sync_send_all_state_event(?REF(NodeName, Module), {info, What}).
+info(NodeName, FlowMgrName, What) ->
+    gen_fsm:sync_send_all_state_event(?REF(NodeName, FlowMgrName), {info, What}).
 
 
 %%
 %%  Register new flow to this manager.
 %%  This function must be called from the registering process.
 %%
-register_flow(NodeName, Module, FlowDomain, FlowModule, Online) ->
+register_flow(NodeName, FlowMgrName, FlowDomain, FlowName) ->
     FlowPid = self(),
-    gen_fsm:sync_send_all_state_event(?REF(NodeName, Module), {register_flow, FlowDomain, FlowModule, Online, FlowPid}).
+    gen_fsm:sync_send_all_state_event(?REF(NodeName, FlowMgrName), {register_flow, FlowDomain, FlowName, FlowPid}).
 
 
 
 %%
 %%  Unregister the flow from this manager.
 %%
-unregister_flow(NodeName, Module, FlowModule) ->
-    gen_fsm:sync_send_all_state_event(?REF(NodeName, Module), {unregister_flow, FlowModule}).
+unregister_flow(NodeName, FlowMgrName, FlowName) ->
+    gen_fsm:sync_send_all_state_event(?REF(NodeName, FlowMgrName), {unregister_flow, FlowName}).
 
 
 %%
 %%  Flows call this function to report them started.
 %%  This is used for accounting them.
 %%
-flow_started(NodeName, Module, FlowDomain, FlowModule, _Opts) ->
+flow_started(NodeName, FlowMgrName, FlowDomain, FlowName, _Opts) ->
     FlowPid = self(),
-    true = ets:insert_new(?MODULE, {FlowPid, NodeName, Module, FlowDomain, FlowModule}),
-    true = erlang:link(gproc:where(?REG(NodeName, Module))),
+    true = ets:insert_new(?MODULE, {FlowPid, NodeName, FlowMgrName, FlowDomain, FlowName}),
+    true = erlang:link(gproc:where(?REG(NodeName, FlowMgrName))),
     ok.
 
 
@@ -126,25 +127,25 @@ flow_started(NodeName, Module, FlowDomain, FlowModule, _Opts) ->
 -spec flow_online(
         NodeName  :: atom(),
         Module    :: module(),
-        FlowNames :: FlowModule | Domain | all,
+        FlowNames :: FlowName | Domain | all,
         Online    :: boolean()
     ) ->
         ok
     when
-        FlowModule :: module(),
-        Domain :: atom().
+        FlowName :: axb_flow(),
+        Domain :: axb_domain().
 
-flow_online(NodeName, Module, FlowNames, Online) ->
-    gen_fsm:sync_send_all_state_event(?REF(NodeName, Module), {flow_online, FlowNames, Online}).
+flow_online(NodeName, FlowMgrName, FlowNames, Online) ->
+    gen_fsm:sync_send_all_state_event(?REF(NodeName, FlowMgrName), {flow_online, FlowNames, Online}).
 
 
 %%
 %%  Checks, if the flow is online or not.
 %%  This function is executed in the caller's process.
 %%
-flow_online(NodeName, Module, FlowModule) ->
-    Flows = gproc:lookup_value(?REG(NodeName, Module)),
-    lists:member({FlowModule, true}, Flows).
+flow_online(NodeName, FlowMgrName, FlowName) ->
+    Flows = gproc:lookup_value(?REG(NodeName, FlowMgrName)),
+    lists:member({FlowName, true}, Flows).
 
 
 
@@ -156,23 +157,23 @@ flow_online(NodeName, Module, FlowModule) ->
 %%  Represents single flow type (not a flow instance).
 %%
 -record(flow, {
-    mod     :: module(),    %% Flow modue (and name).
-    pid     :: pid(),       %% PID of the flow supervisor.
-    domain  :: atom(),      %% Domain to which the flow belongs.
-    online  :: boolean()    %% Is the flow online?
+    name    :: axb_flow(),      %% Flow name.
+    pid     :: pid(),           %% PID of the flow supervisor.
+    domain  :: axb_domain(),    %% Domain to which the flow belongs.
+    online  :: boolean()        %% Is the flow online?
 }).
 
 %%
 %%  FSM state data.
 %%
 -record(state, {
-    node        :: atom(),
-    mod         :: module(),                        %% User-defined module for the flow manager (name).
-    cbm         :: module(),                        %% Callback module for the flow manager implementation.
-    cbs         :: term(),                          %% Callback state for the flow manager implementation.
-    domains     :: [atom()],                        %% Domains, supported in this flow manager.
-    flows       :: [#flow{}],                       %% Flows, managed by this manager.
-    waiting_tr  :: gen_fsm:reference() | undefined  %% Waiting timer reference (if any) in order to cancel the timer before the new one is set or after waiting state is left
+    node        :: atom(),                          % Node, to which the flow manager belongs.
+    name        :: axb_flow_mgr(),                  % Name of the flow manager.
+    cb_mod      :: module(),                        % Callback module for the flow manager implementation.
+    cb_state    :: term(),                          % Callback state for the flow manager implementation.
+    domains     :: [axb_domain()],                  % Domains, supported in this flow manager.
+    flows       :: [#flow{}],                       % Flows, managed by this manager.
+    waiting_tr  :: gen_fsm:reference() | undefined  % Waiting timer reference (if any) in order to cancel the timer before the new one is set or after waiting state is left
 }).
 
 
@@ -185,22 +186,22 @@ flow_online(NodeName, Module, FlowModule) ->
 %%
 %%
 %%
-init({NodeName, Module, CBModule, Args}) ->
+init({NodeName, FlowMgrName, CBModule, Args}) ->
     erlang:process_flag(trap_exit, true),
     case ets:info(?MODULE, name) of
         undefined ->
-            ets:new(?MODULE, [set, public, named_table, {write_concurrency,true}, {read_concurrency, true}]);
+            ets:new(?MODULE, [set, public, named_table, {write_concurrency,true}, {read_concurrency, true}]); % TODO: Move ETS table to axb app.
         _ ->
             ok
     end,
     case CBModule:init(Args) of
         {ok, Domains, FlowsToWait, CBState} ->
-            Flows = [ #flow{mod = F, pid = undefined, domain = undefined, online = false} || F <- FlowsToWait ],
+            Flows = [ #flow{name = F, pid = undefined, domain = undefined, online = false} || F <- FlowsToWait ],
             StateData = #state{
                 node        = NodeName,
-                mod         = Module,
-                cbm         = CBModule,
-                cbs         = CBState,
+                name        = FlowMgrName,
+                cb_mod      = CBModule,
+                cb_state    = CBState,
                 domains     = Domains,
                 flows       = Flows,
                 waiting_tr  = undefined
@@ -228,7 +229,7 @@ waiting(enter, StateData) ->
     {next_state, waiting, NewStateData#state{waiting_tr = NewRef}};
 
 waiting(waiting_timeout, StateData = #state{flows = Flows}) ->
-    MissingFlows = [ M || #flow{mod = M, pid = undefined} <- Flows ],
+    MissingFlows = [ N || #flow{name = N, pid = undefined} <- Flows ],
     lager:info("Still waiting for flows ~p.", [MissingFlows]),
     waiting(enter, StateData#state{waiting_tr = undefined}).
 
@@ -236,11 +237,11 @@ waiting(waiting_timeout, StateData = #state{flows = Flows}) ->
 %%
 %%  The `ready` state.
 %%
-ready(enter, StateData = #state{node = NodeName, mod = Module, domains = Domains, flows = Flows}) ->
+ready(enter, StateData = #state{node = NodeName, name = FlowMgrName, domains = Domains, flows = Flows}) ->
     StateDataAfterTimeCancel = cancel_waiting_timeout(StateData),
-    FlowNames = [ FlowName || #flow{mod = FlowName} <- Flows ],
-    {ok, FlowStatuses} = axb_node:register_flow_mgr(NodeName, Module, FlowNames, []),
-    UpdateFlowStatus = fun ({Flow = #flow{mod = FlowName}, {FlowName, Online}}) ->
+    FlowNames = [ FlowName || #flow{name = FlowName} <- Flows ],
+    {ok, FlowStatuses} = axb_node:register_flow_mgr(NodeName, FlowMgrName, FlowNames, []),
+    UpdateFlowStatus = fun ({Flow = #flow{name = FlowName}, {FlowName, Online}}) ->
         Flow#flow{online = Online}
     end,
     NewFlows = lists:map(UpdateFlowStatus, lists:zip(Flows, FlowStatuses)),
@@ -253,49 +254,68 @@ ready(enter, StateData = #state{node = NodeName, mod = Module, domains = Domains
     {ok, StateDataAfterNotify} = notify_changes(NewFlows, StateDataWithNewFlows),
     %
     % Update stats.
-    ok = axb_stats:flow_mgr_registered(NodeName, Module, Domains),
-    lager:debug("Flow manager ~p is ready at node ~p.", [Module, NodeName]),
+    ok = axb_stats:flow_mgr_registered(NodeName, FlowMgrName, Domains),
+    lager:debug("Flow manager ~p is ready at node ~p.", [FlowMgrName, NodeName]),
     {next_state, ready, StateDataAfterNotify}.
 
 
-handle_sync_event({register_flow, FlowDomain, FlowModule, Online, FlowPid}, From, StateName, StateData) ->
-    #state{node = NodeName, mod = Module, flows = Flows, domains = Domains} = StateData,
+handle_sync_event({register_flow, FlowDomain, FlowName, FlowPid}, From, StateName, StateData) ->
+    #state{node = NodeName, name = FlowMgrName, flows = Flows, domains = Domains} = StateData,
     true = lists:member(FlowDomain, Domains),
-    NewFlow = #flow{mod = FlowModule, pid = FlowPid, domain = FlowDomain, online = Online},
-    Register = fun (NewFlows) ->
+    Register = fun (NewFlows, Online) ->
         true = erlang:link(FlowPid),
-        ok = axb_stats:flow_registered(NodeName, Module, FlowDomain, FlowModule),
+        ok = axb_stats:flow_registered(NodeName, FlowMgrName, FlowDomain, FlowName),
         NewStateData = StateData#state{flows = NewFlows},
         case StateName of
             waiting ->
-                gen_fsm:reply(From, ok),
+                gen_fsm:reply(From, {ok, Online}),
                 case have_all_deps(NewStateData) of
                     true  -> ready(enter, NewStateData);
                     false -> waiting(enter, NewStateData)
                 end;
             _ ->
-                {reply, ok, StateName, NewStateData}
+                {reply, {ok, Online}, StateName, NewStateData}
         end
     end,
-    case lists:keyfind(FlowModule, #flow.mod, Flows) of
+    case lists:keyfind(FlowName, #flow.name, Flows) of
         false ->
+            % New Flow registered.
+            Online = StateName =/= waiting, % NOTE: Only predefined flows are started offline initially.
+            NewFlow = #flow{
+                name   = FlowName,
+                pid    = FlowPid,
+                domain = FlowDomain,
+                online = Online
+            },
             Register([NewFlow | Flows]);
-        NewFlow ->
-            {reply, ok, StateName, StateData};
-        #flow{pid = undefined} ->
-            Register(lists:keyreplace(FlowModule, #flow.mod, Flows, NewFlow));
+        #flow{pid = FlowPid, online = Online} = OldFlow ->
+            % Existing Flow re-registered with the same PID, do almost nothing.
+            NewFlow = OldFlow#flow{
+                domain = FlowDomain
+            },
+            NewStateData = StateData#state{
+                flows = lists:keyreplace(FlowName, #flow.name, Flows, NewFlow)
+            },
+            {reply, {ok, Online}, StateName, NewStateData};
+        #flow{pid = undefined, online = Online} = OldFlow ->
+            % New Flow registered, or re-registered after a crash.
+            NewFlow = OldFlow#flow{
+                pid    = FlowPid,
+                domain = FlowDomain
+            },
+            Register(lists:keyreplace(FlowName, #flow.name, Flows, NewFlow), Online);
         #flow{} ->
             {reply, {error, already_registered}, StateName, StateData}
     end;
 
-handle_sync_event({unregister_flow, FlowModule}, _From, StateName, StateData) ->
-    #state{mod = Module, flows = Flows} = StateData,
-    case lists:keytake(FlowModule, #flow.mod, Flows) of
+handle_sync_event({unregister_flow, FlowName}, _From, StateName, StateData) ->
+    #state{name = FlowMgrName, flows = Flows} = StateData,
+    case lists:keytake(FlowName, #flow.name, Flows) of
         false ->
-            lager:warning("Attempt to unregister unknown flow ~p from ~p.", [FlowModule, Module]),
+            lager:warning("Attempt to unregister unknown flow ~p from ~p.", [FlowName, FlowMgrName]),
             {reply, ok, StateName, StateData};
         {value, #flow{pid = Pid}, NewFlows} ->
-            lager:info("Unregistering flow ~p, pid=~p from ~p.", [FlowModule, Pid, Module]),
+            lager:info("Unregistering flow ~p, pid=~p from ~p.", [FlowName, Pid, FlowMgrName]),
             true = erlang:unlink(Pid),
             NewStateData = StateData#state{flows = NewFlows},
             {reply, ok, StateName, NewStateData}
@@ -309,7 +329,7 @@ handle_sync_event({info, What}, _From, StateName, StateData) ->
     Reply = case What of
         flows ->
             {ok, [
-                {M, flow_status(F)} || F = #flow{mod = M} <- Flows
+                {N, flow_status(F)} || F = #flow{name = N} <- Flows
             ]};
         domains ->
             {ok, [
@@ -318,11 +338,11 @@ handle_sync_event({info, What}, _From, StateName, StateData) ->
         details ->
             {ok, [
                 {flows, [
-                    {M, [
+                    {N, [
                         {status, flow_status(F)},
                         {domain, D}
                     ]}
-                    || F = #flow{mod = M, domain = D} <- Flows
+                    || F = #flow{name = N, domain = D} <- Flows
                 ]}
             ]}
     end,
@@ -330,14 +350,14 @@ handle_sync_event({info, What}, _From, StateName, StateData) ->
 
 handle_sync_event({flow_online, FlowNames, Online}, _From, StateName, StateData) ->
     #state{
-        node = NodeName,
-        mod  = Module,
+        node  = NodeName,
+        name  = FlowMgrName,
         flows = Flows
     } = StateData,
     lager:debug("Updating flow statuses, names=~p, online=~p", [FlowNames, Online]),
     UpdateFlowStatus = fun
-        (F = #flow{mod = M, domain = D, online = O}, {UpdatedFlows, FlowChanges}) when O =/= Online ->
-            case (FlowNames =:= all) or (FlowNames =:= M) or (FlowNames =:= D) of
+        (F = #flow{name = N, domain = D, online = O}, {UpdatedFlows, FlowChanges}) when O =/= Online ->
+            case (FlowNames =:= all) or (FlowNames =:= N) or (FlowNames =:= D) of
                 true ->
                     NewFlow = F#flow{online = Online},
                     {[NewFlow | UpdatedFlows], [NewFlow | FlowChanges]};
@@ -350,7 +370,7 @@ handle_sync_event({flow_online, FlowNames, Online}, _From, StateName, StateData)
     {NewFlows, FlowChanges} = lists:foldl(UpdateFlowStatus, {[], []}, Flows),
     NewStateData = StateData#state{flows = lists:reverse(NewFlows)},
     ok = publish_attrs(NewStateData),
-    ok = axb_node_events:node_state_changed(NodeName, {flow_mgr, Module, flow_state}),
+    ok = axb_node_events:node_state_changed(NodeName, {flow_mgr, FlowMgrName, flow_state}),
     {ok, StateDataAfterNotify} = notify_changes(FlowChanges, NewStateData),
     {reply, ok, StateName, StateDataAfterNotify}.
 
@@ -371,24 +391,24 @@ handle_info({'EXIT', FromPid, Reason}, StateName, StateData) when is_pid(FromPid
         flows = Flows
     } = StateData,
     case ets:lookup(?MODULE, FromPid) of
-        [{_FlowPid, NodeName, Module, FlowDomain, FlowModule}]->
+        [{_FlowPid, NodeName, FlowMgrName, FlowDomain, FlowName}]->
             case Reason of
                 normal ->
                     {next_state, StateName, StateData};
                 _ ->
                     lager:error(
                         "Flow ~p terminated with reason=~p at ~p:~p:~p",
-                        [FlowModule, Reason, NodeName, Module, FlowDomain]
+                        [FlowName, Reason, NodeName, FlowMgrName, FlowDomain]
                     ),
-                    ok = axb_stats:flow_executed(NodeName, Module, FlowDomain, FlowModule, error),
+                    ok = axb_stats:flow_executed(NodeName, FlowMgrName, FlowDomain, FlowName, error),
                     true = ets:delete(?MODULE, FromPid),
                     {next_state, StateName, StateData}
             end;
         [] ->
             case lists:keyfind(FromPid, #flow.pid, Flows) of
-                Flow = #flow{mod = FlowModule} ->
-                    lager:warning("Flow terminated, module=~p, pid=~p, reason=~p", [FlowModule, FromPid, Reason]),
-                    NewFlows = lists:keyreplace(FlowModule, #flow.mod, Flows, Flow#flow{pid = undefined}),
+                Flow = #flow{name = FlowName} ->
+                    lager:warning("Flow terminated, name=~p, pid=~p, reason=~p", [FlowName, FromPid, Reason]),
+                    NewFlows = lists:keyreplace(FlowName, #flow.name, Flows, Flow#flow{pid = undefined}),
                     {next_state, StateName, StateData#state{flows = NewFlows}};
                 false ->
                     case Reason of
@@ -408,10 +428,10 @@ handle_info(_Request, StateName, StateData) ->
 %%
 %%  Termination.
 %%
-terminate(Reason, StateName, #state{node = NodeName, mod = Module}) ->
+terminate(Reason, StateName, #state{node = NodeName, name = FlowMgrName}) ->
     lager:info(
-        "Flow manager ~p (node=~p) is terminating at state ~p with reason ~p.",
-        [Module, NodeName, StateName, Reason]
+        "Flow manager ~p:~p is terminating at state ~p with reason ~p.",
+        [NodeName, FlowMgrName, StateName, Reason]
     ),
     ok.
 
@@ -419,9 +439,9 @@ terminate(Reason, StateName, #state{node = NodeName, mod = Module}) ->
 %%
 %%  Code upgrades.
 %%
-code_change(OldVsn, StateName, StateData = #state{cbm = CBModule, cbs = CBState}, Extra) ->
+code_change(OldVsn, StateName, StateData = #state{cb_mod = CBModule, cb_state = CBState}, Extra) ->
     {ok, NewCBState} = CBModule:code_change(OldVsn, CBState, Extra),
-    {ok, StateName, StateData#state{cbs = NewCBState}}.
+    {ok, StateName, StateData#state{cb_state = NewCBState}}.
 
 
 
@@ -448,33 +468,33 @@ flow_status(#flow{pid = Pid, online = false}) when is_pid(Pid) -> offline.
 %%
 %%  Publish some data in gproc for faster access.
 %%
-publish_attrs(#state{node = NodeName, mod = Module, flows = Flows}) ->
-    FlowStatuses = [ {M, O} || #flow{mod = M, online = O} <- Flows],
-    true = gproc:set_value(?REG(NodeName, Module), FlowStatuses),
+publish_attrs(#state{node = NodeName, name = FlowMgrName, flows = Flows}) ->
+    FlowStatuses = [ {N, O} || #flow{name = N, online = O} <- Flows],
+    true = gproc:set_value(?REG(NodeName, FlowMgrName), FlowStatuses),
     ok.
 
 
 %%
 %%
 %%
-notify_changes(ChangedFlows, StateData = #state{cbm = CBModule, cbs = CBState}) ->
-    NotifyChanges = fun (#flow{mod = M, online = O}, CBS) ->
-        case catch CBModule:flow_changed(M, O, CBS) of
+notify_changes(ChangedFlows, StateData = #state{cb_mod = CBModule, cb_state = CBState}) ->
+    NotifyChanges = fun (#flow{name = N, online = O}, CBS) ->
+        case catch CBModule:flow_changed(N, O, CBS) of
             {ok, NewCBS} ->
                 NewCBS;
             {error, Reason} ->
-                lager:error("Failed to change flow ~p status to online=~p, reason=~p", [M, O, Reason]),
+                lager:error("Failed to change flow ~p status to online=~p, reason=~p", [N, O, Reason]),
                 CBS;
             {'EXIT', Reason} ->
-                lager:error("Failed to change flow ~p status to online=~p, reason=~p", [M, O, Reason]),
+                lager:error("Failed to change flow ~p status to online=~p, reason=~p", [N, O, Reason]),
                 CBS;
             Reason ->
-                lager:error("Failed to change flow ~p status to online=~p, reason=~p", [M, O, Reason]),
+                lager:error("Failed to change flow ~p status to online=~p, reason=~p", [N, O, Reason]),
                 CBS
         end
     end,
     NewCBState = lists:foldr(NotifyChanges, CBState, ChangedFlows),
-    {ok, StateData#state{cbs = NewCBState}}.
+    {ok, StateData#state{cb_state = NewCBState}}.
 
 
 %%
