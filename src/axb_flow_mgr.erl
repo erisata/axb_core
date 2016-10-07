@@ -1,5 +1,5 @@
 %/--------------------------------------------------------------------
-%| Copyright 2015 Erisata, UAB (Ltd.)
+%| Copyright 2015-2016 Erisata, UAB (Ltd.)
 %|
 %| Licensed under the Apache License, Version 2.0 (the "License");
 %| you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@
 -export([waiting/2, ready/2]).
 
 -define(REG(NodeName, Module), {n, l, {?MODULE, NodeName, Module}}).
--define(REF(NodeName, Module), {via, gproc, ?REG(NodeName, Module)}).
+-define(REF(NodeName, Module), {via, gproc, ?REG(NodeName, Module)}).   % TODO: Via axb, as in adapter.
 
 -define(WAIT_INFO_DELAY, 5000).
 
@@ -236,12 +236,26 @@ waiting(waiting_timeout, StateData = #state{flows = Flows}) ->
 %%
 %%  The `ready` state.
 %%
-ready(enter, StateData = #state{node = NodeName, mod = Module, domains = Domains}) ->
-    NewStateData = cancel_waiting_timeout(StateData),
-    ok = axb_node:register_flow_mgr(NodeName, Module, []),
+ready(enter, StateData = #state{node = NodeName, mod = Module, domains = Domains, flows = Flows}) ->
+    StateDataAfterTimeCancel = cancel_waiting_timeout(StateData),
+    FlowNames = [ FlowName || #flow{mod = FlowName} <- Flows ],
+    {ok, FlowStatuses} = axb_node:register_flow_mgr(NodeName, Module, FlowNames, []),
+    UpdateFlowStatus = fun ({Flow = #flow{mod = FlowName}, {FlowName, Online}}) ->
+        Flow#flow{online = Online}
+    end,
+    NewFlows = lists:map(UpdateFlowStatus, lists:zip(Flows, FlowStatuses)),
+    %
+    % Publish flow statuses.
+    StateDataWithNewFlows = StateDataAfterTimeCancel#state{
+        flows = NewFlows
+    },
+    ok = publish_attrs(StateDataWithNewFlows),
+    {ok, StateDataAfterNotify} = notify_changes(NewFlows, StateDataWithNewFlows),
+    %
+    % Update stats.
     ok = axb_stats:flow_mgr_registered(NodeName, Module, Domains),
     lager:debug("Flow manager ~p is ready at node ~p.", [Module, NodeName]),
-    {next_state, ready, NewStateData}.
+    {next_state, ready, StateDataAfterNotify}.
 
 
 handle_sync_event({register_flow, FlowDomain, FlowModule, Online, FlowPid}, From, StateName, StateData) ->
@@ -256,7 +270,7 @@ handle_sync_event({register_flow, FlowDomain, FlowModule, Online, FlowPid}, From
             waiting ->
                 gen_fsm:reply(From, ok),
                 case have_all_deps(NewStateData) of
-                    true ->  ready(enter, NewStateData);
+                    true  -> ready(enter, NewStateData);
                     false -> waiting(enter, NewStateData)
                 end;
             _ ->

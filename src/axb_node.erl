@@ -39,7 +39,7 @@
     start_link/4,
     info/2,
     register_adapter/4,
-    register_flow_mgr/3,
+    register_flow_mgr/4,
     unregister_adapter/2,
     unregister_flow_mgr/2
 ]).
@@ -61,17 +61,17 @@
 %%  before condidering node as started.
 %%
 -callback init(
-        Args :: term()
+        Args    :: term()
     ) ->
-        {ok, [AdapterToWait :: module()], [FlowMgrToWait :: term()]}.
+        {ok, [AdapterToWait :: axb_adapter()], [FlowMgrToWait :: axb_flow_mgr()]}.
 
 
 %%
 %%  This callback is invoked on code upgrades.
 %%
 -callback code_change(
-        OldVsn :: term(),
-        Extra :: term()
+        OldVsn  :: term(),
+        Extra   :: term()
     ) ->
         ok.
 
@@ -134,9 +134,18 @@ register_adapter(NodeName, AdapterName, DomainNames, _Opts) ->
 %%
 %%  Register a flow manager to this node.
 %%
-register_flow_mgr(NodeName, FlowMgrModule, _Opts) ->
+-spec register_flow_mgr(
+        NodeName    :: axb_node(),
+        FlowMgrName :: axb_flow_mgr(),
+        FlowNames   :: [axb_flow()],
+        Opts        :: list()
+    ) ->
+        {ok, [{FlowName :: axb_flow(), Online :: boolean()}]} |
+        {error, Reason :: term()}.
+
+register_flow_mgr(NodeName, FlowMgrName, FlowNames, _Opts) ->
     FlowMgrPid = self(),
-    gen_fsm:sync_send_all_state_event(?REF(NodeName), {register_flow_mgr, FlowMgrModule, FlowMgrPid}).
+    gen_fsm:sync_send_all_state_event(?REF(NodeName), {register_flow_mgr, FlowMgrName, FlowMgrPid, FlowNames}).
 
 
 %%
@@ -158,21 +167,32 @@ unregister_flow_mgr(NodeName, FlowMgrName) ->
 %%% Internal state.
 %%% =============================================================================
 
--record(flow_mgr, {
-    mod,
-    pid
-}).
-
-
+%%
+%%  Manual domain state changes are not reflected here, therefore the
+%%  adapter will return to the predefined state, if the adapter will
+%%  be restarted (e.g. after a crash).
+%%
 -record(adapter, {
     name    :: axb_adapter(),
     pid     :: pid(),
     domains :: [{DomainName :: axb_domain(), Internal :: boolean(), External :: boolean()}]
 }).
 
+
+%%
+%%  Manual flow state changes are not reflected here.
+%%  See #adapter{} for more details.
+%%
+-record(flow_mgr, {
+    name    :: axb_flow_mgr(),
+    pid     :: pid(),
+    flows   :: [{FlowName :: axb_flow(), Online :: boolean()}]
+}).
+
+
 -record(state, {
     name        :: atom(),
-    mod         :: module(),
+    cb_mod      :: module(),
     flow_mgrs   :: [#flow_mgr{}],
     adapters    :: [#adapter{}],
     waiting_tr  :: gen_fsm:reference() | undefined  %% Waiting timer reference (if any) in order to cancel the timer before the new one is set or after waiting state is left
@@ -187,14 +207,14 @@ unregister_flow_mgr(NodeName, FlowMgrName) ->
 %%
 %%
 %%
-init({NodeName, Module, Args}) ->
+init({NodeName, CBModule, Args}) ->
     erlang:process_flag(trap_exit, true),
-    case Module:init(Args) of
+    case CBModule:init(Args) of
         {ok, AdaptersToWait, FlowMgrsToWait} ->
             StateData = #state{
-                name = NodeName,
-                mod = Module,
-                flow_mgrs  = [ #flow_mgr{mod = F} || F <- FlowMgrsToWait ],
+                name       = NodeName,
+                cb_mod     = CBModule,
+                flow_mgrs  = [ #flow_mgr{name = FM, flows = []} || FM <- FlowMgrsToWait ],
                 adapters   = [ #adapter{name = A, domains = []} || A <- AdaptersToWait ],
                 waiting_tr = undefined
             },
@@ -220,7 +240,7 @@ waiting(enter, StateData) ->
 
 waiting(waiting_timeout, StateData = #state{adapters = Adapters, flow_mgrs = FlowMgrs}) ->
     MissingAdapters = [ N || #adapter{name = N, pid = undefined} <- Adapters ],
-    MissingFlowMgrs = [ N || #flow_mgr{mod = N, pid = undefined} <- FlowMgrs ],
+    MissingFlowMgrs = [ N || #flow_mgr{name = N, pid = undefined} <- FlowMgrs ],
     lager:info("Still waiting for adapters ~p and flow managers ~p", [MissingAdapters, MissingFlowMgrs]),
     waiting(enter, StateData#state{waiting_tr = undefined}).
 
@@ -263,8 +283,8 @@ starting_flows(enter, StateData) ->
 
 starting_flows(start_flows, StateData = #state{name = NodeName, flow_mgrs = FlowMgrs}) ->
     lager:debug("Node ~p is starting flow managers.", [NodeName]),
-    StartFlowMgrs = fun (#flow_mgr{mod = FlowMgrModule}) ->
-        ok = axb_flow_mgr:flow_online(NodeName, FlowMgrModule, all, true)
+    StartFlowMgrs = fun (#flow_mgr{name = FlowMgrName}) ->
+        ok = axb_flow_mgr:flow_online(NodeName, FlowMgrName, all, true)
     end,
     ok = lists:foreach(StartFlowMgrs, FlowMgrs),
     starting_external(enter, StateData).
@@ -365,32 +385,55 @@ handle_sync_event({register_adapter, AdapterName, AdapterPid, DomainNames}, From
             {reply, {error, already_registered}, StateName, StateData}
     end;
 
-handle_sync_event({register_flow_mgr, Module, Pid}, From, StateName, StateData) ->
-    #state{flow_mgrs = FlowMgrs} = StateData,
-    NewFlowMgr = #flow_mgr{mod = Module, pid = Pid},
-    Register = fun (NewFlowMgrs) ->
-        lager:debug("FlowMgr registered, name=~p, pid=~p", [Module, Pid]),
-        true = erlang:link(Pid),
+handle_sync_event({register_flow_mgr, FlowMgrName, FlowMgrPid, FlowNames}, From, StateName, StateData) ->
+    #state{
+        name      = NodeName,
+        flow_mgrs = FlowMgrs
+    } = StateData,
+    Register = fun (NewFlowMgrs, NewFlows) ->
+        lager:debug("FlowMgr registered, name=~p, pid=~p", [FlowMgrName, FlowMgrPid]),
+        true = erlang:link(FlowMgrPid),
         NewStateData = StateData#state{flow_mgrs = NewFlowMgrs},
         case StateName of
             waiting ->
-                gen_fsm:reply(From, ok),
+                gen_fsm:reply(From, {ok, NewFlows}),
                 case have_all_deps(NewStateData) of
                     true  -> starting_internal(enter, NewStateData);
                     false -> waiting(enter, NewStateData)
                 end;
             _ ->
-                {reply, ok, StateName, NewStateData}
+                {reply, {ok, NewFlows}, StateName, NewStateData}
         end
     end,
-    case lists:keyfind(Module, #flow_mgr.mod, FlowMgrs) of
+    case lists:keyfind(FlowMgrName, #flow_mgr.name, FlowMgrs) of
         false ->
-            Register([NewFlowMgr | FlowMgrs]);
-        NewFlowMgr ->
-            {reply, ok, StateName, StateData};
-        #flow_mgr{pid = undefined} ->
-            Register(lists:keyreplace(Module, #flow_mgr.mod, FlowMgrs, NewFlowMgr));
-        #flow_mgr{} ->
+            % New FlowMgr registered.
+            NewFlows = flow_mgr_flow_statuses(NodeName, FlowMgrName, FlowNames, []),
+            NewFlowMgr = #flow_mgr{
+                name = FlowMgrName,
+                pid  = FlowMgrPid
+            },
+            Register([NewFlowMgr | FlowMgrs], NewFlows);
+        #flow_mgr{pid = FlowMgrPid, flows = OldFlows} = OldFlowMgr ->
+            % Existing FlowMgr re-registered with the same PID, do almost nothing.
+            NewFlows = flow_mgr_flow_statuses(NodeName, FlowMgrName, FlowNames, OldFlows),
+            NewFlowMgr = OldFlowMgr#flow_mgr{
+                flows = NewFlows
+            },
+            NewStateData = StateData#state{
+                flow_mgrs = lists:keyreplace(FlowMgrName, #flow_mgr.name, FlowMgrs, NewFlowMgr)
+            },
+            {reply, ok, StateName, NewStateData};
+        #flow_mgr{pid = undefined, flows = OldFlows} = OldFlowMgr ->
+            % New FlowMgr registered, or re-registered after a crash.
+            NewFlows = flow_mgr_flow_statuses(NodeName, FlowMgrName, FlowNames, OldFlows),
+            NewFlowMgr = OldFlowMgr#flow_mgr{
+                pid   = FlowMgrPid,
+                flows = NewFlows
+            },
+            Register(lists:keyreplace(FlowMgrName, #flow_mgr.name, FlowMgrs, NewFlowMgr), NewFlows);
+        #flow_mgr{pid = OldFlowMgrPid} when OldFlowMgrPid =/= FlowMgrPid ->
+            % FlowMgr is already registered with another PID.
             {reply, {error, already_registered}, StateName, StateData}
     end;
 
@@ -407,14 +450,14 @@ handle_sync_event({unregister_adapter, AdapterName}, _From, StateName, StateData
             {reply, ok, StateName, NewStateData}
     end;
 
-handle_sync_event({unregister_flow_mgr, Module}, _From, StateName, StateData) ->
+handle_sync_event({unregister_flow_mgr, FlowMgrName}, _From, StateName, StateData) ->
     #state{flow_mgrs = FlowMgrs} = StateData,
-    case lists:keytake(Module, #flow_mgr.mod, FlowMgrs) of
+    case lists:keytake(FlowMgrName, #flow_mgr.name, FlowMgrs) of
         false ->
-            lager:warning("Attempt to unregister unknown flow manager ~p.", [Module]),
+            lager:warning("Attempt to unregister unknown flow manager ~p.", [FlowMgrName]),
             {reply, ok, StateName, StateData};
         {value, #flow_mgr{pid = Pid}, NewFlowMgrs} ->
-            lager:info("Unregistering flow manager ~p, pid=~p", [Module, Pid]),
+            lager:info("Unregistering flow manager ~p, pid=~p", [FlowMgrName, Pid]),
             true = erlang:unlink(Pid),
             NewStateData = StateData#state{flow_mgrs = NewFlowMgrs},
             {reply, ok, StateName, NewStateData}
@@ -422,18 +465,20 @@ handle_sync_event({unregister_flow_mgr, Module}, _From, StateName, StateData) ->
 
 handle_sync_event({info, What}, _From, StateName, StateData) ->
     #state{
-        mod = Mod,
+        cb_mod = CBModule,
         adapters = Adapters,
         flow_mgrs = FlowMgrs
     } = StateData,
     Reply = case What of
         adapters ->
             {ok, [
-                {N, adapter_status(A)} || A = #adapter{name = N} <- Adapters
+                {N, adapter_status(A)}
+                || A = #adapter{name = N} <- Adapters
             ]};
         flow_mgrs ->
             {ok, [
-                {M, flow_mgr_status(F)} || F = #flow_mgr{mod = M} <- FlowMgrs
+                {N, flow_mgr_status(FM)}
+                || FM = #flow_mgr{name = N} <- FlowMgrs
             ]};
         details ->
             {RelName, RelVersion, _RelApps, RelStatus} = case release_handler:which_releases(current) of
@@ -445,7 +490,7 @@ handle_sync_event({info, What}, _From, StateName, StateData) ->
                         []    -> {undefined, undefined, undefined, undefined}
                     end
             end,
-            {AppName, AppDesc, AppVersion} = case application:get_application(Mod) of
+            {AppName, AppDesc, AppVersion} = case application:get_application(CBModule) of
                 undefined ->
                     {undefined, undefined, undefined};
                 {ok, NodeAppName} ->
@@ -478,10 +523,10 @@ handle_sync_event({info, What}, _From, StateName, StateData) ->
                     || A = #adapter{name = N} <- Adapters
                 ]},
                 {flow_mgrs, [
-                    {M, [
-                        {status, flow_mgr_status(F)}
+                    {N, [
+                        {status, flow_mgr_status(FM)}
                     ]}
-                    || F = #flow_mgr{mod = M} <- FlowMgrs
+                    || FM = #flow_mgr{name = N} <- FlowMgrs
                 ]}
             ]}
     end,
@@ -507,12 +552,12 @@ handle_info({'EXIT', FromPid, Reason}, StateName, StateData) when is_pid(FromPid
     FlowMgr = lists:keyfind(FromPid, #flow_mgr.pid, FlowMgrs),
     case {Adapter, FlowMgr} of
         {#adapter{name = AdapterName}, false} ->
-            lager:warning("Adapter terminated, module=~p, pid=~p, reason=~p", [AdapterName, FromPid, Reason]),
+            lager:warning("Adapter terminated, name=~p, pid=~p, reason=~p", [AdapterName, FromPid, Reason]),
             NewAdapters = lists:keyreplace(AdapterName, #adapter.name, Adapters, Adapter#adapter{pid = undefined}),
             {next_state, StateName, StateData#state{adapters = NewAdapters}};
-        {false, #flow_mgr{mod = Module}} ->
-            lager:warning("Flow manager terminated, name=~p, pid=~p, reason=~p", [Module, FromPid, Reason]),
-            NewFlowMgrs = lists:keyreplace(Module, #flow_mgr.mod, FlowMgrs, FlowMgr#flow_mgr{pid = undefined}),
+        {false, #flow_mgr{name = FlowMgrName}} ->
+            lager:warning("Flow manager terminated, name=~p, pid=~p, reason=~p", [FlowMgrName, FromPid, Reason]),
+            NewFlowMgrs = lists:keyreplace(FlowMgrName, #flow_mgr.name, FlowMgrs, FlowMgr#flow_mgr{pid = undefined}),
             {next_state, StateName, StateData#state{flow_mgrs = NewFlowMgrs}};
         {false, false} ->
             lager:warning("Linked process ~p terminated, exiting with reason ~p.", [FromPid, Reason]),
@@ -535,8 +580,8 @@ terminate(Reason, StateName, #state{name = Name}) ->
 %%
 %%  Code upgrades.
 %%
-code_change(OldVsn, StateName, StateData = #state{mod = Module}, Extra) ->
-    ok = Module:code_change(OldVsn, Extra),
+code_change(OldVsn, StateName, StateData = #state{cb_mod = CBModule}, Extra) ->
+    ok = CBModule:code_change(OldVsn, Extra),
     {ok, StateName, StateData}.
 
 
@@ -611,6 +656,32 @@ is_adapter_domain_startup_enabled(NodeName, AdapterName, DomainName) ->
     is_startup_enabled({NodeName, AdapterName, DomainName}).
 
 
+%%
+%%  Determine current flow statuses.
+%%
+flow_mgr_flow_statuses(NodeName, FlowMgrName, FlowNames, KnownFlows) ->
+    FlowStatus = fun (FlowName) ->
+        case lists:keyfind(FlowName, 1, KnownFlows) of
+            false ->
+                Enabled = is_flow_mgr_flow_startup_enabled(NodeName, FlowMgrName, FlowName),
+                {FlowName, Enabled};
+            {FlowName, Online} ->
+                {FlowName, Online}
+        end
+    end,
+    lists:map(FlowStatus, FlowNames).
+
+
+%%
+%%  Checks, if the specified FlowMgr Flow is enabled on startup.
+%%
+is_flow_mgr_flow_startup_enabled(NodeName, FlowMgrName, FlowName) ->
+    is_startup_enabled({NodeName, FlowMgrName, FlowName}).
+
+
+%%
+%%
+%%
 is_startup_enabled(Key) ->
     StartupConf = axb_core_app:get_env(startup, []),
     case lists:keyfind(Key, 1, StartupConf) of
@@ -641,6 +712,5 @@ cancel_waiting_timeout(StateData = #state{waiting_tr = undefined}) ->
 cancel_waiting_timeout(StateData = #state{waiting_tr = Ref}) ->
     _ = gen_fsm:cancel_timer(Ref),
     StateData#state{waiting_tr = undefined}.
-
 
 
