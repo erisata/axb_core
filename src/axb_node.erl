@@ -283,8 +283,12 @@ starting_flows(enter, StateData) ->
 
 starting_flows(start_flows, StateData = #state{name = NodeName, flow_mgrs = FlowMgrs}) ->
     lager:debug("Node ~p is starting flow managers.", [NodeName]),
-    StartFlowMgrs = fun (#flow_mgr{name = FlowMgrName}) ->
-        ok = axb_flow_mgr:flow_online(NodeName, FlowMgrName, all, true)
+    StartFlowMgrs = fun (#flow_mgr{name = FlowMgrName, flows = Flows}) ->
+        FlowMgrOnline = is_flow_mgr_startup_enabled(NodeName, FlowMgrName),
+        StartFlows = fun ({FlowName, FlowOnline}) ->
+            ok = axb_flow_mgr:flow_online(NodeName, FlowMgrName, FlowName, FlowMgrOnline and FlowOnline)
+        end,
+        ok = lists:foreach(StartFlows, Flows)
     end,
     ok = lists:foreach(StartFlowMgrs, FlowMgrs),
     starting_external(enter, StateData).
@@ -670,6 +674,13 @@ flow_mgr_flow_statuses(NodeName, FlowMgrName, FlowNames, KnownFlows) ->
         end
     end,
     lists:map(FlowStatus, FlowNames).
+
+
+%%
+%%  Checks, if the specified FlowMgr is enabled on startup.
+%%
+is_flow_mgr_startup_enabled(NodeName, FlowMgrName) ->
+    is_startup_enabled({NodeName, FlowMgrName}).
 
 
 %%
