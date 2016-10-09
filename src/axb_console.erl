@@ -43,6 +43,8 @@ stats([]) ->
 %%
 %%  List AxB elements. This is used for bash completion.
 %%
+%%  TODO: Fix it.
+%%
 completion([]) ->
     {ok, Nodes} = axb:info(nodes),
     ok = print_list([ N || {N, _S} <- Nodes]),

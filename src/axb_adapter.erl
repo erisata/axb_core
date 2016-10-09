@@ -299,11 +299,11 @@ handle_call({domain_online, DomainNames, Direction, Online}, _From, State) ->
         end
     end,
     NewCBState = lists:foldl(NotifyActionsFun, CBState, ServActions),
-    ok = axb_node_events:node_state_changed(NodeName, {adapter, AdapterName, domain_state}),
     NewState = State#state{
         cb_state = NewCBState,
         domains  = NewDomains
     },
+    ok = axb_node_events:node_state_changed(NodeName, {adapter, AdapterName, domain_state}),
     {reply, ok, NewState};
 
 handle_call({info, What}, _From, State = #state{domains = Domains}) ->
@@ -356,6 +356,7 @@ handle_info(initialize, State) ->
     NewState = State#state{
         cb_state = NewCBState
     },
+    ok = axb_node_events:node_state_changed(NodeName, {adapter, AdapterName, domain_state}),
     {noreply, NewState};
 
 handle_info(_Message, State) ->

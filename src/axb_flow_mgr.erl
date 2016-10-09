@@ -252,6 +252,7 @@ ready(enter, StateData = #state{node = NodeName, name = FlowMgrName, domains = D
     },
     ok = publish_attrs(StateDataWithNewFlows),
     {ok, StateDataAfterNotify} = notify_changes(NewFlows, StateDataWithNewFlows),
+    ok = axb_node_events:node_state_changed(NodeName, {flow_mgr, FlowMgrName, flow_state}),
     %
     % Update stats.
     ok = axb_stats:flow_mgr_registered(NodeName, FlowMgrName, Domains),
@@ -370,8 +371,8 @@ handle_sync_event({flow_online, FlowNames, Online}, _From, StateName, StateData)
     {NewFlows, FlowChanges} = lists:foldl(UpdateFlowStatus, {[], []}, Flows),
     NewStateData = StateData#state{flows = lists:reverse(NewFlows)},
     ok = publish_attrs(NewStateData),
-    ok = axb_node_events:node_state_changed(NodeName, {flow_mgr, FlowMgrName, flow_state}),
     {ok, StateDataAfterNotify} = notify_changes(FlowChanges, NewStateData),
+    ok = axb_node_events:node_state_changed(NodeName, {flow_mgr, FlowMgrName, flow_state}),
     {reply, ok, StateName, StateDataAfterNotify}.
 
 
