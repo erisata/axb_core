@@ -1,5 +1,5 @@
 %/--------------------------------------------------------------------
-%| Copyright 2015 Erisata, UAB (Ltd.)
+%| Copyright 2015-2016 Erisata, UAB (Ltd.)
 %|
 %| Licensed under the Apache License, Version 2.0 (the "License");
 %| you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 
 {git,
     [
+        {"1.2.1", [{restart_application, axb_core}]},
         {"1.2.0", [{restart_application, axb_core}]},
         {"1.1.3", [{restart_application, axb_core}]},
         {"1.1.2", [{restart_application, axb_core}]},
@@ -24,6 +25,7 @@
         {"1.0.0", [{restart_application, axb_core}]}
     ],
     [
+        {"1.2.1", [{restart_application, axb_core}]},
         {"1.2.0", [{restart_application, axb_core}]},
         {"1.1.3", [{restart_application, axb_core}]},
         {"1.1.2", [{restart_application, axb_core}]},
