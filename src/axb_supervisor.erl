@@ -1,5 +1,5 @@
 %/--------------------------------------------------------------------
-%| Copyright 2015 Erisata, UAB (Ltd.)
+%| Copyright 2015-2017 Erisata, UAB (Ltd.)
 %|
 %| Licensed under the Apache License, Version 2.0 (the "License");
 %| you may not use this file except in compliance with the License.
@@ -77,9 +77,12 @@ start_child(Name, ChildId, StartSpec) ->
 %%  Stop the given child, if exists.
 %%
 stop_child(Name, {ChildId, _StartFunc, _Restart, _Shutdown, _Type, _Modules}) ->
-    stop_child(Name, ChildId);
+    stop_child(Name, {id, ChildId});
 
-stop_child(Name, ChildId) ->
+stop_child(Name, #{id := ChildId}) ->
+    stop_child(Name, {id, ChildId});
+
+stop_child(Name, {id, ChildId}) ->
     case supervisor:terminate_child(Name, ChildId) of
         ok ->
             ok;
