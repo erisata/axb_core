@@ -46,7 +46,7 @@
 
 setup(undefined) ->
     NewCtxId = axb:make_id(),
-    lager:debug("New context defined ~p", [NewCtxId]),
+    lager:debug("New context defined ~p", [NewCtxId]),	% TODO: Do not log it, or log it after the context is defined.
     setup(NewCtxId);
 
 setup(CtxId) ->
