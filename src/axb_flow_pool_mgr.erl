@@ -58,7 +58,7 @@ register_flow_sup(NodeName, Module, FlowModule, FlowArgs) ->
 
 
 %%% ============================================================================
-%%% Callbacks for `axb_flow_mgr`.
+%%% Callbacks for `axb_flow_mgr'.
 %%% ============================================================================
 
 %%

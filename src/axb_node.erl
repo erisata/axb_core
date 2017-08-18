@@ -48,7 +48,7 @@
 -include("axb.hrl").
 
 -define(REF(NodeName), {via, gproc, {n, l, {?MODULE, NodeName}}}).
--define(WAIT_INFO_DELAY, 5000).
+-define(WAIT_INFO_DELAY, 1000).
 
 
 %%% =============================================================================

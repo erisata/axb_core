@@ -179,7 +179,7 @@ flow_online(NodeName, FlowMgrName, FlowName) ->
 
 
 %%% ============================================================================
-%%% Callbacks for `gen_fsm`.
+%%% Callbacks for `gen_fsm'.
 %%% ============================================================================
 
 
@@ -479,20 +479,22 @@ publish_attrs(#state{node = NodeName, name = FlowMgrName, flows = Flows}) ->
 %%
 %%
 notify_changes(ChangedFlows, StateData = #state{cb_mod = CBModule, cb_state = CBState}) ->
-    NotifyChanges = fun (#flow{name = N, online = O}, CBS) ->
-        case catch CBModule:flow_changed(N, O, CBS) of
-            {ok, NewCBS} ->
-                NewCBS;
-            {error, Reason} ->
-                lager:error("Failed to change flow ~p status to online=~p, reason=~p", [N, O, Reason]),
-                CBS;
-            {'EXIT', Reason} ->
-                lager:error("Failed to change flow ~p status to online=~p, reason=~p", [N, O, Reason]),
-                CBS;
-            Reason ->
-                lager:error("Failed to change flow ~p status to online=~p, reason=~p", [N, O, Reason]),
-                CBS
-        end
+    NotifyChanges = fun
+        (#flow{name = N, online = O, pid = undefined}, CBS) ->
+            lager:debug("Failed to change flow ~p status to online=~p, it was not registered yet.", [N, O]),
+            CBS;
+        (#flow{name = N, online = O}, CBS) ->
+            try CBModule:flow_changed(N, O, CBS) of
+                {ok, NewCBS} ->
+                    NewCBS;
+                {error, Reason} ->
+                    lager:error("Failed to change flow ~p status to online=~p, reason=~p", [N, O, Reason]),
+                    CBS
+            catch
+                ErrClass:ErrReason ->
+                    lager:error("Failed to change flow ~p status to online=~p, reason=~p:~p", [N, O, ErrClass, ErrReason]),
+                    CBS
+            end
     end,
     NewCBState = lists:foldr(NotifyChanges, CBState, ChangedFlows),
     {ok, StateData#state{cb_state = NewCBState}}.
