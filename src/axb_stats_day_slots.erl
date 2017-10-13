@@ -113,15 +113,15 @@ probe_get_value(DataPoints, State) ->
         d0 = D0, d1 = D1, d2 = D2, d3 = D3
     }} = val(State),
     DPVal = fun
-        (last) -> LastBefore;
-        (h0  ) -> H0;
-        (h1  ) -> H1;
-        (h2  ) -> H2;
-        (h3  ) -> H3;
-        (d0  ) -> D0;
-        (d1  ) -> D1;
-        (d2  ) -> D2;
-        (d3  ) -> D3
+        (DP = last) -> {DP, LastBefore};
+        (DP = h0  ) -> {DP, H0};
+        (DP = h1  ) -> {DP, H1};
+        (DP = h2  ) -> {DP, H2};
+        (DP = h3  ) -> {DP, H3};
+        (DP = d0  ) -> {DP, D0};
+        (DP = d1  ) -> {DP, D1};
+        (DP = d2  ) -> {DP, D2};
+        (DP = d3  ) -> {DP, D3}
     end,
     {ok, lists:map(DPVal, DataPoints)}.
 

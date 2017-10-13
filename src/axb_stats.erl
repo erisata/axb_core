@@ -238,7 +238,7 @@ default_value(_   ) -> 0.
 %%
 get_optional(Name, DataPoints) when is_list(DataPoints) ->
     case exometer:get_value(Name, DataPoints) of
-        {ok, Values}       -> Values;
+        {ok, Values}       -> [ Val || {_DP, Val} <- Values ];
         {error, not_found} -> [ default_value(DP) || DP <- DataPoints ]
     end;
 
