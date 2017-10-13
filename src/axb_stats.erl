@@ -85,12 +85,12 @@ node_registered(NodeName) ->
     MatchSpecFM = [{{[axb, NodeName, fm, '_', '_',      '_', epm], '_', '_'}, [], [true]}],
     ok = exometer:ensure(
         [axb, NodeName, ad],
-        {function, exometer, aggregate, [MatchSpecAD, DataPoints], value, DataPoints},
+        {function, exometer, aggregate, [MatchSpecAD, DataPoints], proplist, DataPoints},
         []
     ),
     ok = exometer:ensure(
         [axb, NodeName, fm],
-        {function, exometer, aggregate, [MatchSpecFM, DataPoints], value, DataPoints},
+        {function, exometer, aggregate, [MatchSpecFM, DataPoints], proplist, DataPoints},
         []
     ).
 
@@ -103,7 +103,7 @@ adapter_registered(NodeName, AdapterModule, Domains) ->
     MatchSpecA = [{{[axb, NodeName, ad, AdapterModule, '_', '_', '_', epm], '_', '_'}, [], [true]}],
     ok = exometer:ensure(
         [axb, NodeName, ad, AdapterModule],
-        {function, exometer, aggregate, [MatchSpecA, DataPoints], value, DataPoints},
+        {function, exometer, aggregate, [MatchSpecA, DataPoints], proplist, DataPoints},
         []
     ),
     lists:foreach(fun (Domain) ->
@@ -112,17 +112,17 @@ adapter_registered(NodeName, AdapterModule, Domains) ->
         MatchSpecE = [{{[axb, NodeName, ad, AdapterModule, Domain, external, '_', epm], '_', '_'}, [], [true]}],
         ok = exometer:ensure(
             [axb, NodeName, ad, AdapterModule, Domain],
-            {function, exometer, aggregate, [MatchSpecD, DataPoints], value, DataPoints},
+            {function, exometer, aggregate, [MatchSpecD, DataPoints], proplist, DataPoints},
             []
         ),
         ok = exometer:ensure(
             [axb, NodeName, ad, AdapterModule, Domain, internal],
-            {function, exometer, aggregate, [MatchSpecI, DataPoints], value, DataPoints},
+            {function, exometer, aggregate, [MatchSpecI, DataPoints], proplist, DataPoints},
             []
         ),
         ok = exometer:ensure(
             [axb, NodeName, ad, AdapterModule, Domain, external],
-            {function, exometer, aggregate, [MatchSpecE, DataPoints], value, DataPoints},
+            {function, exometer, aggregate, [MatchSpecE, DataPoints], proplist, DataPoints},
             []
         )
     end, Domains).
@@ -149,14 +149,14 @@ flow_mgr_registered(NodeName, FlowMgrModule, Domains) ->
     MatchSpecA = [{{[axb, NodeName, fm, FlowMgrModule, '_', '_', epm], '_', '_'}, [], [true]}],
     ok = exometer:ensure(
         [axb, NodeName, fm, FlowMgrModule],
-        {function, exometer, aggregate, [MatchSpecA, DataPoints], value, DataPoints},
+        {function, exometer, aggregate, [MatchSpecA, DataPoints], proplist, DataPoints},
         []
     ),
     lists:foreach(fun (Domain) ->
         MatchSpecD = [{{[axb, NodeName, fm, FlowMgrModule, Domain, '_', epm], '_', '_'}, [], [true]}],
         ok = exometer:ensure(
             [axb, NodeName, fm, FlowMgrModule, Domain],
-            {function, exometer, aggregate, [MatchSpecD, DataPoints], value, DataPoints},
+            {function, exometer, aggregate, [MatchSpecD, DataPoints], proplist, DataPoints},
             []
         )
     end, Domains).
