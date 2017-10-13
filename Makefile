@@ -48,16 +48,16 @@ itest: compile
 
 rtest: itest
 	mkdir -p logs
-	env ERL_LIBS=deps erl -pa ebin -pa itest -config test/sys -s axb -s axb_core_RTEST
+	env ERL_LIBS=deps erl -pa ebin -pa test -config test/sys -s axb -s axb_core_RTEST
 
 clean: clean-itest
 	$(REBAR) clean skip_deps=true
 
 clean-all: clean-itest
-	$(REBAR) clean
+	$(REBAR) clean --recursive
 
 clean-itest:
-	rm -f itest/*.beam
+	rm -f test/*.beam
 
 .PHONY: all deps compile compile-all check test itest rtest clean clean-all clean-itest
 
