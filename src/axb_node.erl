@@ -657,7 +657,7 @@ is_adapter_startup_enabled(NodeName, AdapterName) ->
 %%  Checks, if the specified adapter domain is enabled on startup.
 %%
 is_adapter_domain_startup_enabled(NodeName, AdapterName, DomainName) ->
-    is_startup_enabled({NodeName, AdapterName, DomainName}).
+    is_startup_enabled({NodeName, AdapterName}) andalso is_startup_enabled({NodeName, AdapterName, DomainName}).
 
 
 %%
@@ -687,7 +687,7 @@ is_flow_mgr_startup_enabled(NodeName, FlowMgrName) ->
 %%  Checks, if the specified FlowMgr Flow is enabled on startup.
 %%
 is_flow_mgr_flow_startup_enabled(NodeName, FlowMgrName, FlowName) ->
-    is_startup_enabled({NodeName, FlowMgrName, FlowName}).
+    is_startup_enabled({NodeName, FlowMgrName}) andalso is_startup_enabled({NodeName, FlowMgrName, FlowName}).
 
 
 %%
