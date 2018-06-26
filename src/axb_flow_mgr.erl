@@ -393,6 +393,7 @@ handle_info({'EXIT', FromPid, Reason}, StateName, StateData) when is_pid(FromPid
     } = StateData,
     case ets:lookup(?MODULE, FromPid) of
         [{_FlowPid, NodeName, FlowMgrName, FlowDomain, FlowName}]->
+            true = ets:delete(?MODULE, FromPid),
             case Reason of
                 normal ->
                     {next_state, StateName, StateData};
@@ -402,7 +403,6 @@ handle_info({'EXIT', FromPid, Reason}, StateName, StateData) when is_pid(FromPid
                         [FlowName, Reason, NodeName, FlowMgrName, FlowDomain]
                     ),
                     ok = axb_stats:flow_executed(NodeName, FlowMgrName, FlowDomain, FlowName, error),
-                    true = ets:delete(?MODULE, FromPid),
                     {next_state, StateName, StateData}
             end;
         [] ->
